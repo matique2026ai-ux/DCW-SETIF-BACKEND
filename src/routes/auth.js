@@ -14,8 +14,9 @@ const NOW = () => isPostgres() ? 'NOW()' : 'GETDATE()';
 
 router.post('/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
-    if (!username || !password) {
+    const rawUsername = (req.body.username || '').trim();
+    const rawPassword = (req.body.password || '').trim();
+    if (!rawUsername || !rawPassword) {
       return res.status(400).json({ error: 'أدخل اسم المستخدم وكلمة المرور' });
     }
 
@@ -23,9 +24,9 @@ router.post('/login', async (req, res) => {
     const pg = isPostgres();
     const users = await db.query(
       pg
-        ? 'SELECT * FROM "UtilisateursSysteme" WHERE "NomUtilisateur" = $1 AND "EstActif" = true'
-        : 'SELECT * FROM UtilisateursSysteme WHERE NomUtilisateur = ? AND EstActif = 1',
-      [username]
+        ? 'SELECT * FROM "UtilisateursSysteme" WHERE LOWER(TRIM("NomUtilisateur")) = LOWER($1) AND "EstActif" = true'
+        : 'SELECT * FROM UtilisateursSysteme WHERE LOWER(LTRIM(RTRIM(NomUtilisateur))) = LOWER(?) AND EstActif = 1',
+      [rawUsername]
     );
 
     if (!users || users.length === 0) {
