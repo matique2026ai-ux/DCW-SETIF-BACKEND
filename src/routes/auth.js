@@ -9,8 +9,9 @@ const ROLE_MAP = {
   0: 'director',
   1: 'director',
   2: 'head_of_department',
-  3: 'bureau',
+  3: 'bureau_chief',
   4: 'inspector',
+  5: 'admin',
 };
 
 router.post('/login', async (req, res) => {
