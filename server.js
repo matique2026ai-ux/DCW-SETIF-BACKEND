@@ -41,9 +41,11 @@ app.get('/download/app-release.apk', (req, res) => {
   res.download(apkPath, 'DCW-Setif-Tracker.apk');
 });
 
-// Fallback for Flutter Web SPA routes
-app.get('*', (req, res, next) => {
-  if (req.path.startsWith('/api')) return next();
+// Fallback for Flutter Web SPA routes (Express 5 compatible)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({ error: 'Endpoint not found' });
+  }
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
