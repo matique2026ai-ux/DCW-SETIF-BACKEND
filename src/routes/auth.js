@@ -57,7 +57,7 @@ router.post('/login', async (req, res) => {
     await db.query('UPDATE UtilisateursSysteme SET DerniereConnexion = GETDATE() WHERE Id = ?', [user.Id]);
 
     const token = jwt.sign(
-      { id: user.Id, username: user.NomUtilisateur, role, fullName: user.NomComplet },
+      { id: user.Id, username: user.NomUtilisateur, role, fullName: user.NomComplet, employeeId: user.EmployeeId },
       process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
@@ -69,6 +69,7 @@ router.post('/login', async (req, res) => {
         username: user.NomUtilisateur,
         fullName: user.NomComplet,
         role,
+        employeeId: user.EmployeeId || null,
       },
     });
   } catch (err) {
