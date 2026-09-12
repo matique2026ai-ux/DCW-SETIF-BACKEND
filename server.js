@@ -14,9 +14,14 @@ const deductionRoutes = require('./src/routes/deductions');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+const path = require('path');
+
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Serve static frontend files (Flutter Web + downloads)
+app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/employees', employeeRoutes);
@@ -28,6 +33,18 @@ app.use('/api/deductions', deductionRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'DCW-SETIF-TRACKER API v3.0.0', db: isPostgres() ? 'postgresql' : 'sqlserver' });
+});
+
+// Download endpoint for Android APK
+app.get('/download/app-release.apk', (req, res) => {
+  const apkPath = path.join(__dirname, 'public', 'download', 'app-release.apk');
+  res.download(apkPath, 'DCW-Setif-Tracker.apk');
+});
+
+// Fallback for Flutter Web SPA routes
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api')) return next();
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 async function ensureTables() {
