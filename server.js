@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
-const { getConnection } = require('./src/config/database');
+const { getConnection, isPostgres } = require('./src/config/database');
 
 const authRoutes = require('./src/routes/auth');
 const employeeRoutes = require('./src/routes/employees');
@@ -27,189 +27,197 @@ app.use('/api/visits', visitRoutes);
 app.use('/api/deductions', deductionRoutes);
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'DCW-SETIF-TRACKER API v2.0.0' });
+  res.json({ status: 'ok', message: 'DCW-SETIF-TRACKER API v3.0.0', db: isPostgres() ? 'postgresql' : 'sqlserver' });
 });
 
 async function ensureTables() {
   const db = await getConnection();
+  const pg = isPostgres();
 
-  await db.query(`
-    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'TrackerAttendance')
-    BEGIN
-      CREATE TABLE TrackerAttendance (
-        Id INT IDENTITY(1,1) PRIMARY KEY,
-        EmployeeId INT NOT NULL,
-        Date DATE NOT NULL,
-        CheckInTime DATETIME NULL,
-        CheckOutTime DATETIME NULL,
-        CheckInLocation NVARCHAR(200) NULL,
-        CheckOutLocation NVARCHAR(200) NULL,
-        CheckInLatitude FLOAT NULL,
-        CheckInLongitude FLOAT NULL,
-        CheckOutLatitude FLOAT NULL,
-        CheckOutLongitude FLOAT NULL,
-        CheckInPhoto NVARCHAR(MAX) NULL,
-        IsCheckedOut BIT DEFAULT 0,
-        Notes NVARCHAR(500) NULL,
-        CreatedAt DATETIME DEFAULT GETDATE(),
-        FOREIGN KEY (EmployeeId) REFERENCES Employes(Id)
-      );
-    END
-  `);
+  const tables = [
+    pg ? `CREATE TABLE IF NOT EXISTS "Employes" (
+      "Id" SERIAL PRIMARY KEY, "NumeroMatricule" VARCHAR(50), "Nom" VARCHAR(100), "Prenom" VARCHAR(100),
+      "NomAr" VARCHAR(200), "PrenomAr" VARCHAR(200), "Service" VARCHAR(300),
+      "Grade" VARCHAR(100), "FonctionExercee" VARCHAR(200), "PosteFinancier" VARCHAR(100),
+      "EstActif" BOOLEAN DEFAULT true
+    )` : null,
 
-  try {
-    await db.query("ALTER TABLE TrackerAttendance ADD CheckInLatitude FLOAT NULL");
-    await db.query("ALTER TABLE TrackerAttendance ADD CheckInLongitude FLOAT NULL");
-    await db.query("ALTER TABLE TrackerAttendance ADD CheckOutLatitude FLOAT NULL");
-    await db.query("ALTER TABLE TrackerAttendance ADD CheckOutLongitude FLOAT NULL");
-    await db.query("ALTER TABLE TrackerAttendance ADD CheckInPhoto NVARCHAR(MAX) NULL");
-  } catch (e) {}
+    pg ? `CREATE TABLE IF NOT EXISTS "UtilisateursSysteme" (
+      "Id" SERIAL PRIMARY KEY, "NomUtilisateur" VARCHAR(100) UNIQUE,
+      "MotDePasseHash" TEXT, "NomComplet" VARCHAR(200), "Role" INT DEFAULT 4,
+      "EstActif" BOOLEAN DEFAULT true, "DateCreation" TIMESTAMP DEFAULT NOW(),
+      "DerniereConnexion" TIMESTAMP, "EmployeeId" INT, "Notes" TEXT
+    )` : null,
 
-  await db.query(`
-    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'TrackerPrograms')
-    BEGIN
-      CREATE TABLE TrackerPrograms (
-        Id INT IDENTITY(1,1) PRIMARY KEY,
-        Title NVARCHAR(200) NOT NULL,
-        Description NVARCHAR(500) NULL,
-        Type NVARCHAR(20) DEFAULT 'weekly',
-        WeekDate NVARCHAR(50) NULL,
-        MonthYear NVARCHAR(20) NULL,
-        TargetArea NVARCHAR(200) NULL,
-        TargetType NVARCHAR(100) NULL,
-        FocusPoints NVARCHAR(500) NULL,
-        CreatedBy INT NULL,
-        ServiceName NVARCHAR(200) NULL,
-        CreatedAt DATETIME DEFAULT GETDATE(),
-        FOREIGN KEY (CreatedBy) REFERENCES UtilisateursSysteme(Id)
-      );
-    END
-  `);
+    pg ? `CREATE TABLE IF NOT EXISTS "TrackerAttendance" (
+      "Id" SERIAL PRIMARY KEY, "EmployeeId" INT NOT NULL, "Date" DATE NOT NULL,
+      "CheckInTime" TIMESTAMP, "CheckOutTime" TIMESTAMP,
+      "CheckInLocation" VARCHAR(200), "CheckOutLocation" VARCHAR(200),
+      "CheckInLatitude" DOUBLE PRECISION, "CheckInLongitude" DOUBLE PRECISION,
+      "CheckOutLatitude" DOUBLE PRECISION, "CheckOutLongitude" DOUBLE PRECISION,
+      "CheckInPhoto" TEXT, "IsCheckedOut" BOOLEAN DEFAULT false,
+      "Notes" TEXT, "CreatedAt" TIMESTAMP DEFAULT NOW()
+    )` : null,
 
-  await db.query(`
-    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'TrackerAssignments')
-    BEGIN
-      CREATE TABLE TrackerAssignments (
-        Id INT IDENTITY(1,1) PRIMARY KEY,
-        ProgramId INT NOT NULL,
-        EmployeeId INT NOT NULL,
-        DayOfWeek NVARCHAR(20) NULL,
-        TargetLocation NVARCHAR(200) NULL,
-        TargetAddress NVARCHAR(500) NULL,
-        Latitude FLOAT NULL,
-        Longitude FLOAT NULL,
-        Status NVARCHAR(20) DEFAULT 'pending',
-        Notes NVARCHAR(500) NULL,
-        FOREIGN KEY (ProgramId) REFERENCES TrackerPrograms(Id),
-        FOREIGN KEY (EmployeeId) REFERENCES Employes(Id)
-      );
-    END
-  `);
+    pg ? `CREATE TABLE IF NOT EXISTS "TrackerPrograms" (
+      "Id" SERIAL PRIMARY KEY, "Title" VARCHAR(200) NOT NULL,
+      "Description" TEXT, "Type" VARCHAR(20) DEFAULT 'weekly',
+      "WeekDate" VARCHAR(50), "MonthYear" VARCHAR(20),
+      "TargetArea" VARCHAR(200), "TargetType" VARCHAR(100),
+      "FocusPoints" TEXT, "CreatedBy" INT, "ServiceName" VARCHAR(200),
+      "CreatedAt" TIMESTAMP DEFAULT NOW()
+    )` : null,
 
-  await db.query(`
-    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'TrackerVisits')
-    BEGIN
-      CREATE TABLE TrackerVisits (
-        Id INT IDENTITY(1,1) PRIMARY KEY,
-        EmployeeId INT NOT NULL,
-        AssignmentId INT NULL,
-        Date DATE NOT NULL,
-        CheckInTime DATETIME DEFAULT GETDATE(),
-        CheckOutTime DATETIME NULL,
-        Latitude FLOAT NOT NULL,
-        Longitude FLOAT NOT NULL,
-        Accuracy FLOAT NULL,
-        LocationName NVARCHAR(300) NULL,
-        ShopName NVARCHAR(200) NULL,
-        ShopType NVARCHAR(100) NULL,
-        Photo NVARCHAR(MAX) NULL,
-        Status NVARCHAR(20) DEFAULT 'active',
-        Notes NVARCHAR(500) NULL,
-        ViolationFound BIT DEFAULT 0,
-        ViolationType NVARCHAR(200) NULL,
-        ViolationNotes NVARCHAR(500) NULL,
-        CreatedAt DATETIME DEFAULT GETDATE(),
-        FOREIGN KEY (EmployeeId) REFERENCES Employes(Id)
-      );
-    END
-  `);
+    pg ? `CREATE TABLE IF NOT EXISTS "TrackerVisits" (
+      "Id" SERIAL PRIMARY KEY, "EmployeeId" INT NOT NULL,
+      "AssignmentId" INT, "Date" DATE NOT NULL,
+      "CheckInTime" TIMESTAMP DEFAULT NOW(), "CheckOutTime" TIMESTAMP,
+      "Latitude" DOUBLE PRECISION NOT NULL, "Longitude" DOUBLE PRECISION NOT NULL,
+      "Accuracy" DOUBLE PRECISION, "LocationName" VARCHAR(300),
+      "ShopName" VARCHAR(200), "ShopType" VARCHAR(100), "Photo" TEXT,
+      "Status" VARCHAR(20) DEFAULT 'active', "Notes" TEXT,
+      "ViolationFound" BOOLEAN DEFAULT false, "ViolationType" VARCHAR(200),
+      "ViolationNotes" TEXT, "CreatedAt" TIMESTAMP DEFAULT NOW()
+    )` : null,
 
-  await db.query(`
-    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'TrackerDeductions')
-    BEGIN
-      CREATE TABLE TrackerDeductions (
-        Id INT IDENTITY(1,1) PRIMARY KEY,
-        EmployeeId INT NOT NULL,
-        RequestedBy INT NOT NULL,
-        ApprovedBy INT NULL,
-        Date DATE DEFAULT GETDATE(),
-        Reason NVARCHAR(500) NOT NULL,
-        Amount DECIMAL(10,2) NULL,
-        DaysCount INT NULL,
-        Status NVARCHAR(20) DEFAULT 'pending',
-        Evidence NVARCHAR(MAX) NULL,
-        CreatedAt DATETIME DEFAULT GETDATE(),
-        FOREIGN KEY (EmployeeId) REFERENCES Employes(Id),
-        FOREIGN KEY (RequestedBy) REFERENCES UtilisateursSysteme(Id)
-      );
-    END
-  `);
+    pg ? `CREATE TABLE IF NOT EXISTS "TrackerDeductions" (
+      "Id" SERIAL PRIMARY KEY, "EmployeeId" INT NOT NULL,
+      "RequestedBy" INT NOT NULL, "ApprovedBy" INT,
+      "Date" DATE DEFAULT CURRENT_DATE, "Reason" TEXT NOT NULL,
+      "Amount" DECIMAL(10,2), "DaysCount" INT,
+      "Status" VARCHAR(20) DEFAULT 'pending', "Evidence" TEXT,
+      "CreatedAt" TIMESTAMP DEFAULT NOW()
+    )` : null,
 
-  await db.query(`
-    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'TrackerAbsences')
-    BEGIN
-      CREATE TABLE TrackerAbsences (
-        Id INT IDENTITY(1,1) PRIMARY KEY,
-        EmployeeId INT NOT NULL,
-        Date DATE NOT NULL,
-        Type NVARCHAR(20) DEFAULT 'absent',
-        Reason NVARCHAR(500) NULL,
-        VerifiedBy INT NULL,
-        FOREIGN KEY (EmployeeId) REFERENCES Employes(Id)
-      );
-    END
-  `);
+    pg ? `CREATE TABLE IF NOT EXISTS "TrackerAbsences" (
+      "Id" SERIAL PRIMARY KEY, "EmployeeId" INT NOT NULL,
+      "Date" DATE NOT NULL, "Type" VARCHAR(20) DEFAULT 'absent',
+      "Reason" TEXT, "VerifiedBy" INT
+    )` : null,
+  ];
 
-  console.log('✅ All tables ensured');
+  for (const sql of tables) {
+    if (sql) await db.query(sql);
+  }
+
+  if (!pg) {
+    await db.query(`IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'TrackerAttendance')
+    BEGIN CREATE TABLE TrackerAttendance (
+      Id INT IDENTITY(1,1) PRIMARY KEY, EmployeeId INT NOT NULL, Date DATE NOT NULL,
+      CheckInTime DATETIME NULL, CheckOutTime DATETIME NULL,
+      CheckInLocation NVARCHAR(200) NULL, CheckOutLocation NVARCHAR(200) NULL,
+      CheckInLatitude FLOAT NULL, CheckInLongitude FLOAT NULL,
+      CheckOutLatitude FLOAT NULL, CheckOutLongitude FLOAT NULL,
+      CheckInPhoto NVARCHAR(MAX) NULL, IsCheckedOut BIT DEFAULT 0,
+      Notes NVARCHAR(500) NULL, CreatedAt DATETIME DEFAULT GETDATE(),
+      FOREIGN KEY (EmployeeId) REFERENCES Employes(Id)
+    ) END`);
+    await db.query(`IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'TrackerPrograms')
+    BEGIN CREATE TABLE TrackerPrograms (
+      Id INT IDENTITY(1,1) PRIMARY KEY, Title NVARCHAR(200) NOT NULL,
+      Description NVARCHAR(500) NULL, Type NVARCHAR(20) DEFAULT 'weekly',
+      WeekDate NVARCHAR(50) NULL, MonthYear NVARCHAR(20) NULL,
+      TargetArea NVARCHAR(200) NULL, TargetType NVARCHAR(100) NULL,
+      FocusPoints NVARCHAR(500) NULL, CreatedBy INT NULL,
+      ServiceName NVARCHAR(200) NULL, CreatedAt DATETIME DEFAULT GETDATE()
+    ) END`);
+    await db.query(`IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'TrackerVisits')
+    BEGIN CREATE TABLE TrackerVisits (
+      Id INT IDENTITY(1,1) PRIMARY KEY, EmployeeId INT NOT NULL,
+      AssignmentId INT NULL, Date DATE NOT NULL,
+      CheckInTime DATETIME DEFAULT GETDATE(), CheckOutTime DATETIME NULL,
+      Latitude FLOAT NOT NULL, Longitude FLOAT NOT NULL,
+      Accuracy FLOAT NULL, LocationName NVARCHAR(300) NULL,
+      ShopName NVARCHAR(200) NULL, ShopType NVARCHAR(100) NULL,
+      Photo NVARCHAR(MAX) NULL, Status NVARCHAR(20) DEFAULT 'active',
+      Notes NVARCHAR(500) NULL, ViolationFound BIT DEFAULT 0,
+      ViolationType NVARCHAR(200) NULL, ViolationNotes NVARCHAR(500) NULL,
+      CreatedAt DATETIME DEFAULT GETDATE()
+    ) END`);
+    await db.query(`IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'TrackerDeductions')
+    BEGIN CREATE TABLE TrackerDeductions (
+      Id INT IDENTITY(1,1) PRIMARY KEY, EmployeeId INT NOT NULL,
+      RequestedBy INT NOT NULL, ApprovedBy INT NULL,
+      Date DATE DEFAULT GETDATE(), Reason NVARCHAR(500) NOT NULL,
+      Amount DECIMAL(10,2) NULL, DaysCount INT NULL,
+      Status NVARCHAR(20) DEFAULT 'pending', Evidence NVARCHAR(MAX) NULL,
+      CreatedAt DATETIME DEFAULT GETDATE()
+    ) END`);
+    console.log('✅ SQL Server tables ensured');
+  } else {
+    console.log('✅ PostgreSQL tables ensured');
+  }
 }
 
 async function seedUsers() {
   const db = await getConnection();
-
+  const pg = isPostgres();
   const users = [
-    { username: 'tracker_admin', password: 'admin123', name: 'مدير النظام', role: 'admin', dbRole: 5 },
-    { username: 'directeur', password: 'directeur123', name: 'المدير الولائي', role: 'director', dbRole: 1 },
-    { username: 'chef_concurrence', password: 'chef123', name: 'رئيس مصلحة المنافسة', role: 'head_of_department', dbRole: 2, service: 'مصلحة المنافسة والتحقيقات الاقتصادية' },
-    { username: 'chef_consommation', password: 'chef123', name: 'رئيس مصلحة حماية المستهلك', role: 'head_of_department', dbRole: 2, service: 'مصلحة حماية المستهلك وقمع الغش' },
-    { username: 'bureau_user', password: 'bureau123', name: 'رئيس مكتب المستخدمين', role: 'bureau_chief', dbRole: 3 },
+    { username: 'tracker_admin', password: 'admin123', name: 'مدير النظام', dbRole: 5 },
+    { username: 'directeur', password: 'directeur123', name: 'المدير الولائي', dbRole: 1 },
+    { username: 'chef_concurrence', password: 'chef123', name: 'رئيس مصلحة المنافسة', dbRole: 2 },
+    { username: 'chef_consommation', password: 'chef123', name: 'رئيس مصلحة حماية المستهلك', dbRole: 2 },
+    { username: 'bureau_user', password: 'bureau123', name: 'رئيس مكتب المستخدمين', dbRole: 3 },
   ];
 
   for (const u of users) {
-    const existing = await db.query("SELECT Id FROM UtilisateursSysteme WHERE NomUtilisateur = ?", [u.username]);
+    const hash = await bcrypt.hash(u.password, 10);
+    const existing = await db.query(
+      pg
+        ? 'SELECT "Id" FROM "UtilisateursSysteme" WHERE "NomUtilisateur" = $1'
+        : 'SELECT Id FROM UtilisateursSysteme WHERE NomUtilisateur = ?',
+      [u.username]
+    );
     if (!existing || existing.length === 0) {
-      const hash = await bcrypt.hash(u.password, 10);
       await db.query(
-        "INSERT INTO UtilisateursSysteme (NomUtilisateur, MotDePasseHash, NomComplet, Role, EstActif, DateCreation) VALUES (?, ?, ?, ?, 1, GETDATE())",
+        pg
+          ? 'INSERT INTO "UtilisateursSysteme" ("NomUtilisateur","MotDePasseHash","NomComplet","Role","EstActif","DateCreation") VALUES ($1,$2,$3,$4,true,NOW())'
+          : 'INSERT INTO UtilisateursSysteme (NomUtilisateur,MotDePasseHash,NomComplet,Role,EstActif,DateCreation) VALUES (?,?,?,?,1,GETDATE())',
         [u.username, hash, u.name, u.dbRole]
       );
-      console.log(`✅ User created: ${u.username} / ${u.password} [${u.role}]`);
+      console.log(`✅ User: ${u.username} / ${u.password}`);
     } else {
-      const hash = await bcrypt.hash(u.password, 10);
       await db.query(
-        "UPDATE UtilisateursSysteme SET MotDePasseHash = ?, NomComplet = ?, Role = ? WHERE NomUtilisateur = ?",
+        pg
+          ? 'UPDATE "UtilisateursSysteme" SET "MotDePasseHash"=$1, "NomComplet"=$2, "Role"=$3 WHERE "NomUtilisateur"=$4'
+          : 'UPDATE UtilisateursSysteme SET MotDePasseHash=?, NomComplet=?, Role=? WHERE NomUtilisateur=?',
         [hash, u.name, u.dbRole, u.username]
       );
-      console.log(`🔄 User updated: ${u.username} / ${u.password} [${u.role}]`);
+      console.log(`🔄 User: ${u.username} / ${u.password}`);
     }
   }
+}
+
+async function seedEmployees() {
+  if (!isPostgres()) return;
+  const db = await getConnection();
+  const existing = await db.query('SELECT COUNT(*) as count FROM "Employes"');
+  if (existing[0].count > 0) return;
+
+  const employees = [
+    { nom: 'كريبع', prenom: 'كمال', service: 'مصلحة حماية المستهلك وقمع الغش', grade: 'مفتش' },
+    { nom: 'لونيس', prenom: 'جمال', service: 'مصلحة حماية المستهلك وقمع الغش', grade: 'مفتش' },
+    { nom: 'غزالي', prenom: 'زينب', service: 'مصلحة المنافسة والتحقيقات الاقتصادية', grade: 'مفتش' },
+    { nom: 'لدرع', prenom: 'نعيمة', service: 'مصلحة المنافسة والتحقيقات الاقتصادية', grade: 'مفتش' },
+    { nom: 'دخيلي', prenom: 'خالد', service: 'مصلحة المنافسة والتحقيقات الاقتصادية', grade: 'مفتش' },
+  ];
+
+  for (const e of employees) {
+    await db.query(
+      'INSERT INTO "Employes" ("Nom","Prenom","NomAr","PrenomAr","Service","Grade","EstActif") VALUES ($1,$2,$1,$2,$3,$4,true)',
+      [e.nom, e.prenom, e.service, e.grade]
+    );
+  }
+  console.log('✅ 5 test employees seeded');
 }
 
 async function start() {
   try {
     await ensureTables();
     await seedUsers();
+    await seedEmployees();
     app.listen(PORT, () => {
-      console.log(`🚀 DRH-SETIF-TRACKER API v2.0 running on http://localhost:${PORT}`);
+      console.log(`🚀 DRH-SETIF-TRACKER API v3.0 running on http://localhost:${PORT}`);
     });
   } catch (err) {
     console.error('❌ Failed to start:', err.message);

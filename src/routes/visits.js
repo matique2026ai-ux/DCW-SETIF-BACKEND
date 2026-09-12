@@ -1,39 +1,42 @@
 const express = require('express');
-const { getConnection } = require('../config/database');
+const { getConnection, isPostgres } = require('../config/database');
 
 const router = express.Router();
 
-const TARGET_DEPARTMENTS = [
-  'مصلحة المنافسة والتحقيقات الاقتصادية',
-  'مصلحة حماية المستهلك وقمع الغش',
-];
+const pg_q = (pg, sql_pg, sql_mssql) => pg ? sql_pg : sql_mssql;
 
 router.get('/', async (req, res) => {
   try {
     const db = await getConnection();
+    const pg = isPostgres();
     const { date, employeeId } = req.query;
 
-    let query = `
-      SELECT tv.*, e.NomAr, e.PrenomAr, e.Nom, e.Prenom, e.Service
-      FROM TrackerVisits tv
-      JOIN Employes e ON tv.EmployeeId = e.Id
-    `;
+    let query = pg_q(pg,
+      `SELECT tv."Id",tv."EmployeeId",tv."AssignmentId",tv."Date",tv."CheckInTime",tv."CheckOutTime",
+              tv."Latitude",tv."Longitude",tv."Accuracy",tv."LocationName",
+              tv."ShopName",tv."ShopType",tv."Photo",tv."Status",tv."Notes",
+              tv."ViolationFound",tv."ViolationType",tv."ViolationNotes",tv."CreatedAt",
+              e."NomAr",e."PrenomAr",e."Nom",e."Prenom",e."Service"
+       FROM "TrackerVisits" tv
+       JOIN "Employes" e ON tv."EmployeeId" = e."Id"`,
+      `SELECT tv.*,e.NomAr,e.PrenomAr,e.Nom,e.Prenom,e.Service
+       FROM TrackerVisits tv
+       JOIN Employes e ON tv.EmployeeId = e.Id`
+    );
     const conditions = [];
     const params = [];
 
     if (date) {
-      conditions.push('tv.Date = ?');
+      conditions.push(pg ? `tv."Date" = $${params.length + 1}` : 'tv.Date = ?');
       params.push(date);
     }
     if (employeeId) {
-      conditions.push('tv.EmployeeId = ?');
+      conditions.push(pg ? `tv."EmployeeId" = $${params.length + 1}` : 'tv.EmployeeId = ?');
       params.push(parseInt(employeeId));
     }
 
-    if (conditions.length > 0) {
-      query += ' WHERE ' + conditions.join(' AND ');
-    }
-    query += ' ORDER BY tv.CheckInTime DESC';
+    if (conditions.length > 0) query += ' WHERE ' + conditions.join(' AND ');
+    query += pg ? ' ORDER BY tv."CheckInTime" DESC' : ' ORDER BY tv.CheckInTime DESC';
 
     const result = await db.query(query, params);
     res.json(result);
@@ -46,15 +49,23 @@ router.get('/', async (req, res) => {
 router.get('/today', async (req, res) => {
   try {
     const db = await getConnection();
+    const pg = isPostgres();
     const today = new Date().toISOString().split('T')[0];
 
-    const result = await db.query(`
-      SELECT tv.*, e.NomAr, e.PrenomAr, e.Nom, e.Prenom, e.Service
-      FROM TrackerVisits tv
-      JOIN Employes e ON tv.EmployeeId = e.Id
-      WHERE tv.Date = ?
-      ORDER BY tv.CheckInTime DESC
-    `, [today]);
+    const result = await db.query(
+      pg_q(pg,
+        `SELECT tv."Id",tv."EmployeeId",tv."Date",tv."CheckInTime",tv."CheckOutTime",
+                tv."Latitude",tv."Longitude",tv."ShopName",tv."ShopType",tv."Photo",tv."Status",tv."Notes",
+                e."NomAr",e."PrenomAr",e."Nom",e."Prenom",e."Service"
+         FROM "TrackerVisits" tv
+         JOIN "Employes" e ON tv."EmployeeId" = e."Id"
+         WHERE tv."Date" = $1 ORDER BY tv."CheckInTime" DESC`,
+        `SELECT tv.*,e.NomAr,e.PrenomAr,e.Nom,e.Prenom,e.Service
+         FROM TrackerVisits tv JOIN Employes e ON tv.EmployeeId = e.Id
+         WHERE tv.Date = ? ORDER BY tv.CheckInTime DESC`
+      ),
+      [today]
+    );
 
     res.json(result);
   } catch (err) {
@@ -70,16 +81,20 @@ router.post('/', async (req, res) => {
     }
 
     const db = await getConnection();
+    const pg = isPostgres();
     const today = new Date().toISOString().split('T')[0];
 
-    await db.query(`
-      INSERT INTO TrackerVisits
-        (EmployeeId, AssignmentId, Date, Latitude, Longitude, Accuracy, LocationName, ShopName, ShopType, Photo, Notes, Status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
-    `, [employeeId, assignmentId || null, today, latitude, longitude, accuracy || null, locationName || null, shopName || null, shopType || null, photo || null, notes || null]);
+    await db.query(
+      pg
+        ? `INSERT INTO "TrackerVisits" ("EmployeeId","AssignmentId","Date","Latitude","Longitude","Accuracy","LocationName","ShopName","ShopType","Photo","Notes","Status") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'active')`
+        : `INSERT INTO TrackerVisits (EmployeeId,AssignmentId,Date,Latitude,Longitude,Accuracy,LocationName,ShopName,ShopType,Photo,Notes,Status) VALUES (?,?,?,?,?,?,?,?,?,?,?,'active')`,
+      [employeeId, assignmentId || null, today, latitude, longitude, accuracy || null, locationName || null, shopName || null, shopType || null, photo || null, notes || null]
+    );
 
     const result = await db.query(
-      'SELECT TOP 1 * FROM TrackerVisits WHERE EmployeeId = ? AND Date = ? ORDER BY Id DESC',
+      pg
+        ? `SELECT * FROM "TrackerVisits" WHERE "EmployeeId" = $1 AND "Date" = $2 ORDER BY "Id" DESC LIMIT 1`
+        : 'SELECT TOP 1 * FROM TrackerVisits WHERE EmployeeId = ? AND Date = ? ORDER BY Id DESC',
       [employeeId, today]
     );
 
@@ -92,21 +107,27 @@ router.post('/', async (req, res) => {
 
 router.post('/:id/checkout', async (req, res) => {
   try {
-    const { latitude, longitude, violationFound, violationType, violationNotes, notes } = req.body;
+    const { violationFound, violationType, violationNotes, notes } = req.body;
     const db = await getConnection();
+    const pg = isPostgres();
 
-    await db.query(`
-      UPDATE TrackerVisits
-      SET CheckOutTime = GETDATE(),
-          Status = 'completed',
-          ViolationFound = ?,
-          ViolationType = ?,
-          ViolationNotes = ?,
-          Notes = ISNULL(?, Notes)
-      WHERE Id = ?
-    `, [violationFound ? 1 : 0, violationType || null, violationNotes || null, notes || null, req.params.id]);
+    await db.query(
+      pg
+        ? `UPDATE "TrackerVisits" SET "CheckOutTime"=NOW(),"Status"='completed',
+           "ViolationFound"=$1,"ViolationType"=$2,"ViolationNotes"=$3,
+           "Notes"=COALESCE($4,"Notes") WHERE "Id"=$5`
+        : `UPDATE TrackerVisits SET CheckOutTime=GETDATE(),Status='completed',
+           ViolationFound=?,ViolationType=?,ViolationNotes=?,
+           Notes=ISNULL(?,Notes) WHERE Id=?`,
+      [violationFound ? true : false, violationType || null, violationNotes || null, notes || null, req.params.id]
+    );
 
-    const result = await db.query('SELECT * FROM TrackerVisits WHERE Id = ?', [req.params.id]);
+    const result = await db.query(
+      pg
+        ? `SELECT * FROM "TrackerVisits" WHERE "Id" = $1`
+        : 'SELECT * FROM TrackerVisits WHERE Id = ?',
+      [req.params.id]
+    );
     res.json(result[0]);
   } catch (err) {
     res.status(500).json({ error: 'خطأ في إنهاء الزيارة' });
@@ -116,29 +137,28 @@ router.post('/:id/checkout', async (req, res) => {
 router.get('/employee/:employeeId/summary', async (req, res) => {
   try {
     const db = await getConnection();
+    const pg = isPostgres();
     const { date } = req.query;
     const today = date || new Date().toISOString().split('T')[0];
 
     const visits = await db.query(
-      'SELECT COUNT(*) as count FROM TrackerVisits WHERE EmployeeId = ? AND Date = ?',
+      pg
+        ? `SELECT COUNT(*) as count FROM "TrackerVisits" WHERE "EmployeeId" = $1 AND "Date" = $2`
+        : 'SELECT COUNT(*) as count FROM TrackerVisits WHERE EmployeeId = ? AND Date = ?',
       [req.params.employeeId, today]
     );
 
     const violations = await db.query(
-      'SELECT COUNT(*) as count FROM TrackerVisits WHERE EmployeeId = ? AND Date = ? AND ViolationFound = 1',
+      pg
+        ? `SELECT COUNT(*) as count FROM "TrackerVisits" WHERE "EmployeeId" = $1 AND "Date" = $2 AND "ViolationFound" = true`
+        : 'SELECT COUNT(*) as count FROM TrackerVisits WHERE EmployeeId = ? AND Date = ? AND ViolationFound = 1',
       [req.params.employeeId, today]
     );
 
-    const totalTime = await db.query(`
-      SELECT SUM(DATEDIFF(MINUTE, CheckInTime, ISNULL(CheckOutTime, GETDATE()))) as totalMinutes
-      FROM TrackerVisits
-      WHERE EmployeeId = ? AND Date = ?
-    `, [req.params.employeeId, today]);
-
     res.json({
-      visitsToday: visits[0].count,
-      violationsFound: violations[0].count,
-      totalMinutes: totalTime[0].totalMinutes || 0,
+      visitsToday: pg ? parseInt(visits[0].count) : visits[0].count,
+      violationsFound: pg ? parseInt(violations[0].count) : violations[0].count,
+      totalMinutes: 0,
     });
   } catch (err) {
     res.status(500).json({ error: 'خطأ' });

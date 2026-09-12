@@ -1,5 +1,5 @@
 const express = require('express');
-const { getConnection } = require('../config/database');
+const { getConnection, isPostgres } = require('../config/database');
 
 const router = express.Router();
 
@@ -8,37 +8,48 @@ const TARGET_DEPARTMENTS = [
   'مصلحة حماية المستهلك وقمع الغش',
 ];
 
+const pg_q = (pg, sql_pg, sql_mssql) => pg ? sql_pg : sql_mssql;
+
 router.get('/', async (req, res) => {
   try {
     const db = await getConnection();
+    const pg = isPostgres();
     const { date, employeeId } = req.query;
 
-    let query = `
-      SELECT ta.Id, ta.EmployeeId, ta.Date, ta.CheckInTime, ta.CheckOutTime,
-             ta.CheckInLocation, ta.CheckOutLocation,
-             ta.CheckInLatitude, ta.CheckInLongitude,
-             ta.CheckOutLatitude, ta.CheckOutLongitude,
-             ta.IsCheckedOut, ta.Notes, ta.CreatedAt,
-             e.Nom, e.Prenom, e.NomAr, e.PrenomAr, e.Grade, e.Service
-      FROM TrackerAttendance ta
-      JOIN Employes e ON ta.EmployeeId = e.Id
-    `;
+    let query = pg_q(pg,
+      `SELECT ta."Id", ta."EmployeeId", ta."Date", ta."CheckInTime", ta."CheckOutTime",
+              ta."CheckInLocation", ta."CheckOutLocation",
+              ta."CheckInLatitude", ta."CheckInLongitude",
+              ta."CheckOutLatitude", ta."CheckOutLongitude",
+              ta."IsCheckedOut", ta."Notes", ta."CreatedAt",
+              e."Nom", e."Prenom", e."NomAr", e."PrenomAr", e."Grade", e."Service"
+       FROM "TrackerAttendance" ta
+       JOIN "Employes" e ON ta."EmployeeId" = e."Id"`,
+      `SELECT ta.Id, ta.EmployeeId, ta.Date, ta.CheckInTime, ta.CheckOutTime,
+              ta.CheckInLocation, ta.CheckOutLocation,
+              ta.CheckInLatitude, ta.CheckInLongitude,
+              ta.CheckOutLatitude, ta.CheckOutLongitude,
+              ta.IsCheckedOut, ta.Notes, ta.CreatedAt,
+              e.Nom, e.Prenom, e.NomAr, e.PrenomAr, e.Grade, e.Service
+       FROM TrackerAttendance ta
+       JOIN Employes e ON ta.EmployeeId = e.Id`
+    );
     const conditions = [];
     const params = [];
 
     if (date) {
-      conditions.push('ta.Date = ?');
+      conditions.push(pg ? `ta."Date" = $${params.length + 1}` : 'ta.Date = ?');
       params.push(date);
     }
     if (employeeId) {
-      conditions.push('ta.EmployeeId = ?');
+      conditions.push(pg ? `ta."EmployeeId" = $${params.length + 1}` : 'ta.EmployeeId = ?');
       params.push(parseInt(employeeId));
     }
 
     if (conditions.length > 0) {
       query += ' WHERE ' + conditions.join(' AND ');
     }
-    query += ' ORDER BY ta.CheckInTime DESC';
+    query += pg ? ' ORDER BY ta."CheckInTime" DESC' : ' ORDER BY ta.CheckInTime DESC';
 
     const result = await db.query(query, params);
     res.json(result);
@@ -48,77 +59,31 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.get('/locations', async (req, res) => {
-  try {
-    const db = await getConnection();
-    const today = new Date().toISOString().split('T')[0];
-
-    const result = await db.query(`
-      SELECT
-        ta.EmployeeId,
-        ta.Date,
-        ta.CheckInTime,
-        ta.CheckOutTime,
-        ta.IsCheckedOut,
-        ta.CheckInLatitude,
-        ta.CheckInLongitude,
-        ta.CheckOutLatitude,
-        ta.CheckOutLongitude,
-        e.NomAr, e.PrenomAr, e.Nom, e.Prenom, e.Service, e.Grade
-      FROM TrackerAttendance ta
-      JOIN Employes e ON ta.EmployeeId = e.Id
-      WHERE ta.Date = ? AND e.Service IN (?, ?)
-      ORDER BY ta.CheckInTime DESC
-    `, [today, ...TARGET_DEPARTMENTS]);
-
-    const seen = new Map();
-    for (const row of result) {
-      if (!seen.has(row.EmployeeId)) {
-        seen.set(row.EmployeeId, {
-          employeeId: row.EmployeeId,
-          name: row.NomAr ? `${row.NomAr} ${row.PrenomAr}` : `${row.Nom} ${row.Prenom}`,
-          service: row.Service,
-          grade: row.Grade,
-          checkInTime: row.CheckInTime,
-          checkOutTime: row.CheckOutTime,
-          isCheckedOut: row.IsCheckedOut,
-          latitude: row.CheckInLatitude,
-          longitude: row.CheckInLongitude,
-          checkoutLatitude: row.CheckOutLatitude,
-          checkoutLongitude: row.CheckOutLongitude,
-        });
-      }
-    }
-
-    res.json(Array.from(seen.values()));
-  } catch (err) {
-    console.error('Get locations error:', err.message);
-    res.status(500).json({ error: 'خطأ في جلب المواقع' });
-  }
-});
-
 router.get('/map-data', async (req, res) => {
   try {
     const db = await getConnection();
+    const pg = isPostgres();
     const today = new Date().toISOString().split('T')[0];
 
     const allEmployees = await db.query(
-      "SELECT Id, NomAr, PrenomAr, Nom, Prenom, Service, Grade FROM Employes WHERE EstActif = 1"
+      pg
+        ? `SELECT "Id","NomAr","PrenomAr","Nom","Prenom","Service","Grade" FROM "Employes" WHERE "EstActif" = true`
+        : 'SELECT Id,NomAr,PrenomAr,Nom,Prenom,Service,Grade FROM Employes WHERE EstActif = 1'
     );
     const targetEmployees = allEmployees.filter(e =>
       e.Service && TARGET_DEPARTMENTS.some(d => e.Service.includes(d))
     );
 
     const attendance = await db.query(
-      "SELECT EmployeeId, CheckInTime, CheckOutTime, IsCheckedOut, CheckInLatitude, CheckInLongitude FROM TrackerAttendance WHERE Date = ?",
+      pg
+        ? `SELECT "EmployeeId","CheckInTime","CheckOutTime","IsCheckedOut","CheckInLatitude","CheckInLongitude" FROM "TrackerAttendance" WHERE "Date" = $1`
+        : 'SELECT EmployeeId,CheckInTime,CheckOutTime,IsCheckedOut,CheckInLatitude,CheckInLongitude FROM TrackerAttendance WHERE Date = ?',
       [today]
     );
 
     const attendanceMap = {};
     for (const a of attendance) {
-      if (!attendanceMap[a.EmployeeId]) {
-        attendanceMap[a.EmployeeId] = a;
-      }
+      if (!attendanceMap[a.EmployeeId]) attendanceMap[a.EmployeeId] = a;
     }
 
     const result = targetEmployees.map(emp => {
@@ -126,10 +91,8 @@ router.get('/map-data', async (req, res) => {
       return {
         employeeId: emp.Id,
         name: emp.NomAr ? `${emp.NomAr} ${emp.PrenomAr}` : `${emp.Nom} ${emp.Prenom}`,
-        service: emp.Service,
-        grade: emp.Grade,
-        hasCheckedIn: !!att,
-        isCheckedOut: att ? att.IsCheckedOut : false,
+        service: emp.Service, grade: emp.Grade,
+        hasCheckedIn: !!att, isCheckedOut: att ? att.IsCheckedOut : false,
         checkInTime: att ? att.CheckInTime : null,
         latitude: att ? att.CheckInLatitude : null,
         longitude: att ? att.CheckInLongitude : null,
@@ -146,15 +109,16 @@ router.get('/map-data', async (req, res) => {
 router.post('/checkin', async (req, res) => {
   try {
     const { employeeId, latitude, longitude, location } = req.body;
-    if (!employeeId) {
-      return res.status(400).json({ error: 'رقم الموظف مطلوب' });
-    }
+    if (!employeeId) return res.status(400).json({ error: 'رقم الموظف مطلوب' });
 
     const db = await getConnection();
+    const pg = isPostgres();
     const today = new Date().toISOString().split('T')[0];
 
     const existing = await db.query(
-      'SELECT Id FROM TrackerAttendance WHERE EmployeeId = ? AND Date = ? AND IsCheckedOut = 0',
+      pg
+        ? `SELECT "Id" FROM "TrackerAttendance" WHERE "EmployeeId" = $1 AND "Date" = $2 AND "IsCheckedOut" = false`
+        : 'SELECT Id FROM TrackerAttendance WHERE EmployeeId = ? AND Date = ? AND IsCheckedOut = 0',
       [employeeId, today]
     );
 
@@ -163,14 +127,16 @@ router.post('/checkin', async (req, res) => {
     }
 
     await db.query(
-      `INSERT INTO TrackerAttendance
-        (EmployeeId, Date, CheckInTime, CheckInLocation, CheckInLatitude, CheckInLongitude, IsCheckedOut)
-        VALUES (?, ?, GETDATE(), ?, ?, ?, 0)`,
+      pg
+        ? `INSERT INTO "TrackerAttendance" ("EmployeeId","Date","CheckInTime","CheckInLocation","CheckInLatitude","CheckInLongitude","IsCheckedOut") VALUES ($1,$2,NOW(),$3,$4,$5,false)`
+        : `INSERT INTO TrackerAttendance (EmployeeId,Date,CheckInTime,CheckInLocation,CheckInLatitude,CheckInLongitude,IsCheckedOut) VALUES (?,?,GETDATE(),?,?,?,0)`,
       [employeeId, today, location || null, latitude || null, longitude || null]
     );
 
     const result = await db.query(
-      'SELECT TOP 1 * FROM TrackerAttendance WHERE EmployeeId = ? AND Date = ? ORDER BY Id DESC',
+      pg
+        ? `SELECT * FROM "TrackerAttendance" WHERE "EmployeeId" = $1 AND "Date" = $2 ORDER BY "Id" DESC LIMIT 1`
+        : 'SELECT TOP 1 * FROM TrackerAttendance WHERE EmployeeId = ? AND Date = ? ORDER BY Id DESC',
       [employeeId, today]
     );
 
@@ -184,15 +150,16 @@ router.post('/checkin', async (req, res) => {
 router.post('/checkout', async (req, res) => {
   try {
     const { employeeId, latitude, longitude, location } = req.body;
-    if (!employeeId) {
-      return res.status(400).json({ error: 'رقم الموظف مطلوب' });
-    }
+    if (!employeeId) return res.status(400).json({ error: 'رقم الموظف مطلوب' });
 
     const db = await getConnection();
+    const pg = isPostgres();
     const today = new Date().toISOString().split('T')[0];
 
     const existing = await db.query(
-      'SELECT Id FROM TrackerAttendance WHERE EmployeeId = ? AND Date = ? AND IsCheckedOut = 0',
+      pg
+        ? `SELECT "Id" FROM "TrackerAttendance" WHERE "EmployeeId" = $1 AND "Date" = $2 AND "IsCheckedOut" = false`
+        : 'SELECT Id FROM TrackerAttendance WHERE EmployeeId = ? AND Date = ? AND IsCheckedOut = 0',
       [employeeId, today]
     );
 
@@ -201,16 +168,16 @@ router.post('/checkout', async (req, res) => {
     }
 
     await db.query(
-      `UPDATE TrackerAttendance
-        SET CheckOutTime = GETDATE(), CheckOutLocation = ?,
-            CheckOutLatitude = ?, CheckOutLongitude = ?,
-            IsCheckedOut = 1
-        WHERE EmployeeId = ? AND Date = ? AND IsCheckedOut = 0`,
+      pg
+        ? `UPDATE "TrackerAttendance" SET "CheckOutTime"=NOW(),"CheckOutLocation"=$1,"CheckOutLatitude"=$2,"CheckOutLongitude"=$3,"IsCheckedOut"=true WHERE "EmployeeId"=$4 AND "Date"=$5 AND "IsCheckedOut"=false`
+        : `UPDATE TrackerAttendance SET CheckOutTime=GETDATE(),CheckOutLocation=?,CheckOutLatitude=?,CheckOutLongitude=?,IsCheckedOut=1 WHERE EmployeeId=? AND Date=? AND IsCheckedOut=0`,
       [location || null, latitude || null, longitude || null, employeeId, today]
     );
 
     const result = await db.query(
-      'SELECT TOP 1 * FROM TrackerAttendance WHERE EmployeeId = ? AND Date = ? ORDER BY Id DESC',
+      pg
+        ? `SELECT * FROM "TrackerAttendance" WHERE "EmployeeId" = $1 AND "Date" = $2 ORDER BY "Id" DESC LIMIT 1`
+        : 'SELECT TOP 1 * FROM TrackerAttendance WHERE EmployeeId = ? AND Date = ? ORDER BY Id DESC',
       [employeeId, today]
     );
 
@@ -229,23 +196,28 @@ router.get('/today-self', async (req, res) => {
     }
     const jwt = require('jsonwebtoken');
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'drh-setif-secret-2024');
 
     const db = await getConnection();
+    const pg = isPostgres();
     const today = new Date().toISOString().split('T')[0];
 
     const user = await db.query(
-      'SELECT Id FROM UtilisateursSysteme WHERE NomUtilisateur = ?',
+      pg
+        ? `SELECT "Id" FROM "UtilisateursSysteme" WHERE "NomUtilisateur" = $1`
+        : 'SELECT Id FROM UtilisateursSysteme WHERE NomUtilisateur = ?',
       [decoded.username]
     );
 
-    if (!user || user.length === 0) {
-      return res.json(null);
-    }
+    if (!user || user.length === 0) return res.json(null);
+
+    const empId = decoded.employeeId || user[0].Id;
 
     const attendance = await db.query(
-      'SELECT TOP 1 * FROM TrackerAttendance WHERE EmployeeId = ? AND Date = ?',
-      [user[0].Id, today]
+      pg
+        ? `SELECT * FROM "TrackerAttendance" WHERE "EmployeeId" = $1 AND "Date" = $2 ORDER BY "Id" DESC LIMIT 1`
+        : 'SELECT TOP 1 * FROM TrackerAttendance WHERE EmployeeId = ? AND Date = ?',
+      [empId, today]
     );
 
     res.json(attendance.length > 0 ? attendance[0] : null);
