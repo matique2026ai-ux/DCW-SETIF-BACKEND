@@ -1,5 +1,4 @@
 const { Pool } = require('pg');
-const odbc = require('odbc');
 require('dotenv').config();
 
 let pgPool = null;
@@ -29,6 +28,7 @@ async function getConnection() {
   }
 
   if (!odbcConn) {
+    const odbc = require('odbc');
     const CONN_STR = 'Driver={SQL Server Native Client 11.0};Server=(localdb)\\MSSQLLocalDB;Database=DRH_Setif_DB;Trusted_Connection=Yes;';
     odbcConn = await odbc.connect(CONN_STR);
     console.log('✅ Connected to SQL Server via ODBC');
