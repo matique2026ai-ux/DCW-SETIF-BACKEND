@@ -158,6 +158,8 @@ async function seedUsers() {
     { username: 'chef_concurrence', password: 'chef123', name: 'رئيس مصلحة المنافسة', dbRole: 2 },
     { username: 'chef_consommation', password: 'chef123', name: 'رئيس مصلحة حماية المستهلك', dbRole: 2 },
     { username: 'bureau_user', password: 'bureau123', name: 'رئيس مكتب المستخدمين', dbRole: 3 },
+    { username: 'chef_bureau', password: 'Bureau@2024', name: 'رئيس مكتب المستخدمين', dbRole: 3 },
+    { username: 'agent', password: 'Agent@2024', name: 'مفتش رئيسي', dbRole: 4, employeeId: 1 },
   ];
 
   for (const u of users) {
@@ -171,17 +173,17 @@ async function seedUsers() {
     if (!existing || existing.length === 0) {
       await db.query(
         pg
-          ? 'INSERT INTO "UtilisateursSysteme" ("NomUtilisateur","MotDePasseHash","NomComplet","Role","EstActif","DateCreation") VALUES ($1,$2,$3,$4,true,NOW())'
-          : 'INSERT INTO UtilisateursSysteme (NomUtilisateur,MotDePasseHash,NomComplet,Role,EstActif,DateCreation) VALUES (?,?,?,?,1,GETDATE())',
-        [u.username, hash, u.name, u.dbRole]
+          ? 'INSERT INTO "UtilisateursSysteme" ("NomUtilisateur","MotDePasseHash","NomComplet","Role","EstActif","DateCreation","EmployeeId") VALUES ($1,$2,$3,$4,true,NOW(),$5)'
+          : 'INSERT INTO UtilisateursSysteme (NomUtilisateur,MotDePasseHash,NomComplet,Role,EstActif,DateCreation,EmployeeId) VALUES (?,?,?,?,1,GETDATE(),?)',
+        [u.username, hash, u.name, u.dbRole, u.employeeId || null]
       );
       console.log(`✅ User: ${u.username} / ${u.password}`);
     } else {
       await db.query(
         pg
-          ? 'UPDATE "UtilisateursSysteme" SET "MotDePasseHash"=$1, "NomComplet"=$2, "Role"=$3 WHERE "NomUtilisateur"=$4'
-          : 'UPDATE UtilisateursSysteme SET MotDePasseHash=?, NomComplet=?, Role=? WHERE NomUtilisateur=?',
-        [hash, u.name, u.dbRole, u.username]
+          ? 'UPDATE "UtilisateursSysteme" SET "MotDePasseHash"=$1, "NomComplet"=$2, "Role"=$3, "EmployeeId"=$4 WHERE "NomUtilisateur"=$5'
+          : 'UPDATE UtilisateursSysteme SET MotDePasseHash=?, NomComplet=?, Role=?, EmployeeId=? WHERE NomUtilisateur=?',
+        [hash, u.name, u.dbRole, u.employeeId || null, u.username]
       );
       console.log(`🔄 User: ${u.username} / ${u.password}`);
     }
