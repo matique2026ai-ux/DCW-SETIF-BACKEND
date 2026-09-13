@@ -98,8 +98,9 @@ app.get('/apk', serveApk);
 
 // Fallback for Flutter Web SPA routes (Express 5 compatible)
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api')) {
-    return res.status(404).json({ error: 'Endpoint not found' });
+  const url = req.originalUrl || req.url || req.path || '';
+  if (url.startsWith('/api') || req.path.startsWith('/api')) {
+    return res.status(404).json({ error: 'مسار غير موجود في الواجهة البرمجية' });
   }
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
