@@ -253,6 +253,36 @@ router.post('/checkout', async (req, res) => {
   }
 });
 
+router.post('/cancel-checkout', async (req, res) => {
+  try {
+    const { employeeId } = req.body;
+    if (!employeeId) return res.status(400).json({ error: 'رقم الموظف مطلوب' });
+
+    const db = await getConnection();
+    const pg = isPostgres();
+    const today = getTodayAlgeria();
+
+    await db.query(
+      pg
+        ? `UPDATE "TrackerAttendance" SET "IsCheckedOut"=false, "CheckOutTime"=NULL WHERE "EmployeeId"=$1 AND "Date"=$2`
+        : `UPDATE TrackerAttendance SET IsCheckedOut=0, CheckOutTime=NULL WHERE EmployeeId=? AND Date=?`,
+      [employeeId, today]
+    );
+
+    const result = await db.query(
+      pg
+        ? `SELECT * FROM "TrackerAttendance" WHERE "EmployeeId" = $1 AND "Date" = $2 ORDER BY "Id" DESC LIMIT 1`
+        : 'SELECT TOP 1 * FROM TrackerAttendance WHERE EmployeeId = ? AND Date = ? ORDER BY Id DESC',
+      [employeeId, today]
+    );
+
+    res.json(result[0] || { success: true });
+  } catch (err) {
+    console.error('Cancel checkout error:', err.message);
+    res.status(500).json({ error: 'خطأ في استئناف الدوام' });
+  }
+});
+
 router.get('/today-self', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
