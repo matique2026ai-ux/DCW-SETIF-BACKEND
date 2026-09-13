@@ -51,24 +51,35 @@ router.get('/today', async (req, res) => {
     const db = await getConnection();
     const pg = isPostgres();
     const today = new Date().toISOString().split('T')[0];
+    const { employeeId } = req.query;
 
-    const result = await db.query(
-      pg_q(pg,
-        `SELECT tv."Id",tv."EmployeeId",tv."Date",tv."CheckInTime",tv."CheckOutTime",
-                tv."Latitude",tv."Longitude",tv."ShopName",tv."ShopType",tv."Photo",tv."Status",tv."Notes",
-                e."NomAr",e."PrenomAr",e."Nom",e."Prenom",e."Service"
-         FROM "TrackerVisits" tv
-         JOIN "Employes" e ON tv."EmployeeId" = e."Id"
-         WHERE tv."Date" = $1 ORDER BY tv."CheckInTime" DESC`,
-        `SELECT tv.*,e.NomAr,e.PrenomAr,e.Nom,e.Prenom,e.Service
-         FROM TrackerVisits tv JOIN Employes e ON tv.EmployeeId = e.Id
-         WHERE tv.Date = ? ORDER BY tv.CheckInTime DESC`
-      ),
-      [today]
+    let query = pg_q(pg,
+      `SELECT tv."Id",tv."EmployeeId",tv."Date",tv."CheckInTime",tv."CheckOutTime",
+              tv."Latitude",tv."Longitude",tv."Accuracy",tv."LocationName",
+              tv."ShopName",tv."ShopType",tv."Photo",tv."Status",tv."Notes",
+              tv."CreatedAt",
+              e."NomAr",e."PrenomAr",e."Nom",e."Prenom",e."Service"
+       FROM "TrackerVisits" tv
+       LEFT JOIN "Employes" e ON tv."EmployeeId" = e."Id"
+       WHERE tv."Date" = $1`,
+      `SELECT tv.*,e.NomAr,e.PrenomAr,e.Nom,e.Prenom,e.Service
+       FROM TrackerVisits tv
+       LEFT JOIN Employes e ON tv.EmployeeId = e.Id
+       WHERE tv.Date = ?`
     );
+    const params = [today];
 
+    if (employeeId) {
+      query += pg ? ` AND tv."EmployeeId" = $${params.length + 1}` : ' AND tv.EmployeeId = ?';
+      params.push(parseInt(employeeId));
+    }
+
+    query += pg ? ' ORDER BY tv."CheckInTime" DESC' : ' ORDER BY tv.CheckInTime DESC';
+
+    const result = await db.query(query, params);
     res.json(result);
   } catch (err) {
+    console.error('Get today visits error:', err.message);
     res.status(500).json({ error: 'خطأ في جلب زيارات اليوم' });
   }
 });

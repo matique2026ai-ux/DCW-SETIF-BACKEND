@@ -132,4 +132,21 @@ router.post('/:id/reject', async (req, res) => {
   }
 });
 
+router.delete('/:id', async (req, res) => {
+  try {
+    const db = await getConnection();
+    const pg = isPostgres();
+    await db.query(
+      pg
+        ? `DELETE FROM "TrackerDeductions" WHERE "Id" = $1`
+        : `DELETE FROM TrackerDeductions WHERE Id = ?`,
+      [req.params.id]
+    );
+    res.json({ success: true, message: 'تم حذف الخصم بنجاح' });
+  } catch (err) {
+    console.error('Delete deduction error:', err.message);
+    res.status(500).json({ error: 'خطأ في حذف قرار الخصم' });
+  }
+});
+
 module.exports = router;
