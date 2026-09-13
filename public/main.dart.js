@@ -9277,10 +9277,10 @@ case 16:s=J.d(j,"visit")?18:19
 break
 case 18:a2=A.hv(J.af(i,"latitude"))
 a6=a2==null?null:a2
-f=a6==null?36.1898:a6
+f=a6==null?36.1930704:a6
 a2=A.hv(J.af(i,"longitude"))
 a7=a2==null?null:a2
-e=a7==null?5.4108:a7
+e=a7==null?5.3959613:a7
 a2=A.hv(J.af(i,"employeeId"))
 a3=a2==null?null:B.d.dj(a2)
 d=a3==null?1:a3
@@ -51450,7 +51450,7 @@ a9=a6
 s=3
 return A.q(n.ms(),$async$nt)
 case 3:g=a9.a=b1
-f=g==null?a6.a=A.Ww(5,0,0,null,!1,!1,!1,!1,!1,!1,!1,0,0,!1,36.1898,5.4108,0,0,new A.ci(Date.now(),0,!1)):g
+f=g==null?a6.a=A.Ww(5,0,0,null,!1,!1,!1,!1,!1,!1,!1,0,0,!1,36.1930704,5.3959613,0,0,new A.ci(Date.now(),0,!1)):g
 s=4
 return A.q(n.aok(),$async$nt)
 case 4:m=b1
@@ -51465,8 +51465,8 @@ a=e}else a=b
 l=a==null?1:a
 e=f.a
 f=f.b
-k=A.aOU(e,f,36.1898,5.4108)<=500
-a0=A.aOU(e,f,36.1898,5.4108)
+k=A.aOU(e,f,36.1930704,5.3959613)<=500
+a0=A.aOU(e,f,36.1930704,5.3959613)
 a1=B.c.a3(new A.ci(Date.now(),0,!1).k(0),11,16)
 b=k?"HQ":"Field"
 j=A.ao(["employeeId",l,"latitude",e,"longitude",f,"photo",m,"location",b],t.N,t.X)
@@ -51524,7 +51524,7 @@ s=p}for(;;)switch(s){case 0:n.a9(new A.aFk(n))
 s=3
 return A.q(n.ms(),$async$ny)
 case 3:m=b1
-if(m==null)m=A.Ww(5,0,0,null,!1,!1,!1,!1,!1,!1,!1,0,0,!1,36.1898,5.4108,0,0,new A.ci(Date.now(),0,!1))
+if(m==null)m=A.Ww(5,0,0,null,!1,!1,!1,!1,!1,!1,!1,0,0,!1,36.1930704,5.3959613,0,0,new A.ci(Date.now(),0,!1))
 h=n.c
 if(h==null){s=1
 break}g=t.e
@@ -51534,7 +51534,7 @@ e=h?null:f.e
 if(e==null){e=h?null:f.a
 d=e}else d=e
 l=d==null?1:d
-c=A.aOU(m.a,m.b,36.1898,5.4108)
+c=A.aOU(m.a,m.b,36.1930704,5.3959613)
 e=m.a
 b=m.b
 a=c<=500?"HQ":"Field"
@@ -51594,9 +51594,9 @@ q=new A.ci(Date.now(),0,!1).k(0).split(" ")[0]
 p=k.w
 if(p==null)p=B.c.a3(new A.ci(Date.now(),0,!1).k(0),11,19)
 o=k.y
-if(o==null)o=36.1898
+if(o==null)o=36.1930704
 n=k.z
-if(n==null)n=5.4108
+if(n==null)n=5.3959613
 m=k.x
 l=Date.now()
 r=A.ao(["type","checkin","employeeName",r,"date",q,"time",p,"latitude",o,"longitude",n,"photo",m,"id",l,"status",a?"OFFLINE_PENDING_SYNC":"VERIFIED_ACTIVE"],t.N,t.z)
@@ -51884,9 +51884,9 @@ if(e.d&&e.b==null)g.b.ms().cl(new A.aFw(e,g.c,b),t.P)
 s=e.b
 r=s==null
 q=r?f:s.a
-if(q==null)q=36.1898
+if(q==null)q=36.1930704
 p=r?f:s.b
-if(p==null)p=5.4108
+if(p==null)p=5.3959613
 s=A.an(20)
 r=g.d.a
 o=A.a_(r.gaP(0)==="ar"?"\u062a\u0633\u062c\u064a\u0644 \u0632\u064a\u0627\u0631\u0629 (\u0635\u0648\u0631\u0629 + \u0645\u0648\u0642\u0639)":"Enregistrer une visite (photo + lieu)",f,f,f,f,B.b6,f,B.a1)
@@ -51918,7 +51918,7 @@ $1(a){if(this.b.e!=null)this.c.$1(new A.aFv(this.a,a))},
 $S:354}
 A.aFv.prototype={
 $0(){var s,r=this.b
-if(r==null)r=A.Ww(5,0,0,null,!1,!1,!1,!1,!1,!1,!1,0,0,!1,36.1898,5.4108,0,0,new A.ci(Date.now(),0,!1))
+if(r==null)r=A.Ww(5,0,0,null,!1,!1,!1,!1,!1,!1,!1,0,0,!1,36.1930704,5.3959613,0,0,new A.ci(Date.now(),0,!1))
 s=this.a
 s.b=r
 s.d=!1},
@@ -51981,9 +51981,9 @@ k=a0.length===0?"\u0645\u062d\u0644 \u062a\u062c\u0627\u0631\u064a - \u0645\u063
 e=a6.b
 b=e==null
 a1=b?null:e.a
-j=a1==null?36.1898:a1
+j=a1==null?36.1930704:a1
 a2=b?null:e.b
-i=a2==null?5.4108:a2
+i=a2==null?5.3959613:a2
 e=t.N
 h=A.ao(["employeeId",l,"latitude",j,"longitude",i,"photo",a6.c,"shopName",k,"shopType",a6.a,"notes",B.c.fJ(n.f.a.a)],e,t.X)
 g=!1
@@ -112040,7 +112040,7 @@ B.dk=new A.rC(3,"all")
 B.aj=new A.Dq(0,"ariaLabel")
 B.jQ=new A.Dq(1,"domText")
 B.hM=new A.Dq(2,"sizedSpan")
-B.jR=new A.hg(36.1898,5.4108)
+B.jR=new A.hg(36.1930704,5.3959613)
 B.Ug=new A.T6(!1,255)
 B.Uh=new A.T7(255)
 B.tU=new A.Dy(0,"opportunity")
