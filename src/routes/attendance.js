@@ -1,5 +1,6 @@
 const express = require('express');
 const { getConnection, isPostgres } = require('../config/database');
+const { getTodayAlgeria } = require('../utils/dateUtils');
 
 const router = express.Router();
 
@@ -63,7 +64,7 @@ router.get('/map-data', async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayAlgeria();
 
     const allEmployees = await db.query(
       pg
@@ -130,6 +131,12 @@ router.get('/map-data', async (req, res) => {
       const empVisits = visitsMap[emp.Id] || [];
       const lastVisit = empVisits.length > 0 ? empVisits[empVisits.length - 1] : null;
 
+      const isCheckedOut = att ? (att.IsCheckedOut === true || att.IsCheckedOut === 1) : false;
+      const isNightDuty = emp.AdministrativeStatus === 'special_mission';
+
+      // Strict Privacy Rule: If the employee checked out and is NOT on night duty, do not stream live coordinates
+      const allowLiveTracking = att && (!isCheckedOut || isNightDuty);
+
       return {
         employeeId: emp.Id,
         name: emp.NomAr ? `${emp.NomAr} ${emp.PrenomAr}` : `${emp.Nom} ${emp.Prenom}`,
@@ -138,14 +145,18 @@ router.get('/map-data', async (req, res) => {
         administrativeStatus: emp.AdministrativeStatus || 'active',
         isBrigadeLeader: emp.IsBrigadeLeader === true || emp.IsBrigadeLeader === 1,
         brigadeName: emp.BrigadeName,
+        isNightDuty: isNightDuty,
         hasCheckedIn: !!att,
-        isCheckedOut: att ? (att.IsCheckedOut === true || att.IsCheckedOut === 1) : false,
+        isCheckedOut: isCheckedOut,
+        trackingStatus: isCheckedOut
+            ? (isNightDuty ? 'مهمة تفتيش ليلية نشطة' : 'منصرف - التتبع معطل للخصوصية')
+            : (att ? 'نشط في الخدمة الميدانية' : 'غير مسجل حضور'),
         checkInTime: att ? att.CheckInTime : null,
         checkOutTime: att ? att.CheckOutTime : null,
-        latitude: lastVisit ? lastVisit.latitude : (att ? att.CheckInLatitude : null),
-        longitude: lastVisit ? lastVisit.longitude : (att ? att.CheckInLongitude : null),
-        checkInLatitude: att ? att.CheckInLatitude : null,
-        checkInLongitude: att ? att.CheckInLongitude : null,
+        latitude: allowLiveTracking ? (lastVisit ? lastVisit.latitude : (att ? att.CheckInLatitude : null)) : null,
+        longitude: allowLiveTracking ? (lastVisit ? lastVisit.longitude : (att ? att.CheckInLongitude : null)) : null,
+        checkInLatitude: allowLiveTracking && att ? att.CheckInLatitude : null,
+        checkInLongitude: allowLiveTracking && att ? att.CheckInLongitude : null,
         checkInPhoto: att ? att.CheckInPhoto : null,
         notes: att ? att.Notes : null,
         visitsCount: empVisits.length,
@@ -167,7 +178,7 @@ router.post('/checkin', async (req, res) => {
 
     const db = await getConnection();
     const pg = isPostgres();
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayAlgeria();
 
     const existing = await db.query(
       pg
@@ -208,7 +219,7 @@ router.post('/checkout', async (req, res) => {
 
     const db = await getConnection();
     const pg = isPostgres();
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayAlgeria();
 
     const existing = await db.query(
       pg
@@ -254,7 +265,7 @@ router.get('/today-self', async (req, res) => {
 
     const db = await getConnection();
     const pg = isPostgres();
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayAlgeria();
 
     const user = await db.query(
       pg

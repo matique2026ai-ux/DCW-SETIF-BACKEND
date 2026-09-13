@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getConnection, isPostgres } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
+const { getTodayAlgeria } = require('../utils/dateUtils');
 
 // GET all justifications (filtered by status or employeeId if provided)
 router.get('/', verifyToken, async (req, res) => {
@@ -77,8 +78,8 @@ router.post('/', verifyToken, async (req, res) => {
       empId,
       type || 'general',
       title || 'تبرير غياب',
-      startDate || new Date().toISOString().split('T')[0],
-      endDate || new Date().toISOString().split('T')[0],
+      startDate || getTodayAlgeria(),
+      endDate || getTodayAlgeria(),
       daysCount || 1,
       documentPhoto || null,
       notes || null

@@ -15,7 +15,10 @@ async function getConnection() {
         connectionString: process.env.DATABASE_URL,
         ssl: { rejectUnauthorized: false },
       });
-      console.log('✅ Connected to PostgreSQL');
+      pgPool.on('connect', (client) => {
+        client.query("SET TIME ZONE 'Africa/Algiers'").catch(() => {});
+      });
+      console.log('✅ Connected to PostgreSQL (Timezone: Africa/Algiers)');
     }
     return {
       query: async (sql, params = []) => {

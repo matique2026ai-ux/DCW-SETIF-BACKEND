@@ -1,5 +1,6 @@
 const express = require('express');
 const { getConnection, isPostgres } = require('../config/database');
+const { getTodayAlgeria } = require('../utils/dateUtils');
 
 const router = express.Router();
 
@@ -50,7 +51,7 @@ router.get('/today', async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayAlgeria();
     const { employeeId } = req.query;
 
     let query = pg_q(pg,
@@ -93,7 +94,7 @@ router.post('/', async (req, res) => {
 
     const db = await getConnection();
     const pg = isPostgres();
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayAlgeria();
 
     await db.query(
       pg
@@ -150,7 +151,7 @@ router.get('/employee/:employeeId/summary', async (req, res) => {
     const db = await getConnection();
     const pg = isPostgres();
     const { date } = req.query;
-    const today = date || new Date().toISOString().split('T')[0];
+    const today = date || getTodayAlgeria();
 
     const visits = await db.query(
       pg

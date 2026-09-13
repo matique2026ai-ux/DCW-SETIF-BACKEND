@@ -1,5 +1,6 @@
 const express = require('express');
 const { getConnection, isPostgres } = require('../config/database');
+const { getTodayAlgeria } = require('../utils/dateUtils');
 
 const router = express.Router();
 
@@ -53,7 +54,7 @@ router.post('/', async (req, res) => {
         title,
         description || null,
         type || 'daily',
-        weekDate || new Date().toISOString().split('T')[0],
+        weekDate || getTodayAlgeria(),
         monthYear || null,
         targetArea || null,
         targetType || null,

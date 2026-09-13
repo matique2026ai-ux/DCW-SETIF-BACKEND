@@ -1,5 +1,6 @@
 const express = require('express');
 const { getConnection, isPostgres } = require('../config/database');
+const { getTodayAlgeria } = require('../utils/dateUtils');
 
 const router = express.Router();
 
@@ -12,7 +13,7 @@ router.get('/stats', async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayAlgeria();
 
     const allEmployees = await db.query(
       pg

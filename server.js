@@ -1,7 +1,10 @@
+process.env.TZ = 'Africa/Algiers';
+
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const { getConnection, isPostgres } = require('./src/config/database');
+const { getTodayAlgeria, getNowAlgeriaIso } = require('./src/utils/dateUtils');
 
 const authRoutes = require('./src/routes/auth');
 const employeeRoutes = require('./src/routes/employees');
@@ -34,7 +37,14 @@ app.use('/api/deductions', deductionRoutes);
 app.use('/api/justifications', justificationRoutes);
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'DCW-SETIF-TRACKER API v3.0.0', db: isPostgres() ? 'postgresql' : 'sqlserver' });
+  res.json({
+    status: 'ok',
+    message: 'DCW-SETIF-TRACKER API v3.0.0',
+    timezone: 'Africa/Algiers (UTC+1)',
+    algeriaDate: getTodayAlgeria(),
+    algeriaTime: getNowAlgeriaIso(),
+    db: isPostgres() ? 'postgresql' : 'sqlserver'
+  });
 });
 
 // Download endpoint for Android APK
