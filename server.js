@@ -36,6 +36,31 @@ app.use('/api/visits', visitRoutes);
 app.use('/api/deductions', deductionRoutes);
 app.use('/api/justifications', justificationRoutes);
 
+// Reset / Clean test attendance for fresh live demonstration
+app.all('/api/clean-test-data', async (req, res) => {
+  try {
+    const db = await getConnection();
+    const pg = isPostgres();
+    if (pg) {
+      await db.query('TRUNCATE TABLE "TrackerVisits" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerAttendance" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerDeductions" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerAbsences" RESTART IDENTITY CASCADE');
+    } else {
+      await db.query('DELETE FROM TrackerVisits');
+      await db.query('DELETE FROM TrackerAttendance');
+      await db.query('DELETE FROM TrackerDeductions');
+      await db.query('DELETE FROM TrackerAbsences');
+    }
+    res.json({
+      success: true,
+      message: '✅ تم تصفير جميع سجلات الحضور والمعاينات الوهمية السابقة بنجاح. يمكنك الآن بدء البث الحي الحقيقي بهاتفك!',
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -240,7 +265,9 @@ async function seedUsers() {
     { username: 'chef_consommation', password: 'chef123', name: 'رئيس مصلحة حماية المستهلك', dbRole: 2 },
     { username: 'bureau_user', password: 'bureau123', name: 'رئيس مكتب المستخدمين', dbRole: 3 },
     { username: 'chef_bureau', password: 'Bureau@2024', name: 'رئيس مكتب المستخدمين', dbRole: 3 },
-    { username: 'agent', password: 'Agent@2024', name: 'مفتش رئيسي', dbRole: 4, employeeId: 1 },
+    { username: 'agent', password: 'agent123', name: 'مفتش رئيسي', dbRole: 4, employeeId: 1 },
+    { username: 'kriba', password: 'kriba123', name: 'كريبع فؤاد — مفتش رئيسي', dbRole: 4, employeeId: 1 },
+    { username: 'inspecteur', password: 'agent123', name: 'مفتش ميداني', dbRole: 4, employeeId: 1 },
   ];
 
   for (const u of users) {
