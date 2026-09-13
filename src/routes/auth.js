@@ -37,15 +37,15 @@ router.post('/login', async (req, res) => {
     let valid = false;
 
     try {
-      valid = await bcrypt.compare(password, user.MotDePasseHash || user['MotDePasseHash']);
+      valid = await bcrypt.compare(rawPassword, user.MotDePasseHash || user['MotDePasseHash']);
     } catch {
       valid = false;
     }
 
-    if (!valid && (user.MotDePasseHash || user['MotDePasseHash']) === password) {
+    if (!valid && (user.MotDePasseHash || user['MotDePasseHash']) === rawPassword) {
       valid = true;
       try {
-        const newHash = await bcrypt.hash(password, 10);
+        const newHash = await bcrypt.hash(rawPassword, 10);
         await db.query(
           pg
             ? 'UPDATE "UtilisateursSysteme" SET "MotDePasseHash"=$1 WHERE "Id"=$2'
