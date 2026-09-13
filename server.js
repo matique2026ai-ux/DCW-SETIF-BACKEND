@@ -72,11 +72,29 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Download endpoint for Android APK
-app.get('/download/app-release.apk', (req, res) => {
-  const apkPath = path.join(__dirname, 'public', 'download', 'app-release.apk');
-  res.download(apkPath, 'DCW-Setif-Tracker.apk');
-});
+// Download endpoints for Android APK
+const serveApk = (req, res) => {
+  const fs = require('fs');
+  const possiblePaths = [
+    path.join(__dirname, 'public', 'app-release.apk'),
+    path.join(__dirname, 'public', 'download', 'app-release.apk'),
+    path.join(__dirname, 'public', 'DCW-SETIF-TRACKER.apk'),
+  ];
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+      return res.download(p, 'DCW-SETIF-TRACKER.apk');
+    }
+  }
+  res.status(404).send('APK not found on server');
+};
+
+app.get('/app-release.apk', serveApk);
+app.get('/DCW-SETIF-TRACKER.apk', serveApk);
+app.get('/download/app-release.apk', serveApk);
+app.get('/download/DCW-SETIF-TRACKER.apk', serveApk);
+app.get('/download', serveApk);
+app.get('/apk', serveApk);
 
 // Fallback for Flutter Web SPA routes (Express 5 compatible)
 app.use((req, res, next) => {
