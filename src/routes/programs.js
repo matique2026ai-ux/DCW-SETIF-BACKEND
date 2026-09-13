@@ -7,31 +7,65 @@ router.get('/', async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();
-    const result = await db.query(
-      pg
-        ? `SELECT * FROM "TrackerPrograms" ORDER BY "CreatedAt" DESC`
-        : 'SELECT * FROM TrackerPrograms ORDER BY CreatedAt DESC'
-    );
+    const { service, type } = req.query;
+
+    let query = pg
+      ? `SELECT * FROM "TrackerPrograms"`
+      : 'SELECT * FROM TrackerPrograms';
+    
+    const conditions = [];
+    const params = [];
+
+    if (service) {
+      conditions.push(pg ? `("ServiceName" ILIKE $${params.length + 1} OR "ServiceName" IS NULL)` : '(ServiceName LIKE ? OR ServiceName IS NULL)');
+      params.push(`%${service}%`);
+    }
+    if (type) {
+      conditions.push(pg ? `"Type" = $${params.length + 1}` : 'Type = ?');
+      params.push(type);
+    }
+
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+    query += pg ? ' ORDER BY "CreatedAt" DESC' : ' ORDER BY CreatedAt DESC';
+
+    const result = await db.query(query, params);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: 'خطأ في جلب البرامج' });
+    console.error('Get programs error:', err.message);
+    res.status(500).json({ error: 'خطأ في جلب البرامج الرقابية وأوامر المهمة' });
   }
 });
 
 router.post('/', async (req, res) => {
   try {
-    const { title, type, weekDate, monthYear, createdBy } = req.body;
+    const { title, description, type, weekDate, monthYear, targetArea, targetType, focusPoints, createdBy, serviceName } = req.body;
+    if (!title) return res.status(400).json({ error: 'عنوان أمر المهمة / البرنامج مطلوب' });
+
     const db = await getConnection();
     const pg = isPostgres();
     await db.query(
       pg
-        ? `INSERT INTO "TrackerPrograms" ("Title","Type","WeekDate","MonthYear","CreatedBy") VALUES ($1,$2,$3,$4,$5)`
-        : 'INSERT INTO TrackerPrograms (Title,Type,WeekDate,MonthYear,CreatedBy) VALUES (?,?,?,?,?)',
-      [title, type || 'weekly', weekDate || null, monthYear || null, createdBy || null]
+        ? `INSERT INTO "TrackerPrograms" ("Title","Description","Type","WeekDate","MonthYear","TargetArea","TargetType","FocusPoints","CreatedBy","ServiceName","CreatedAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())`
+        : 'INSERT INTO TrackerPrograms (Title,Description,Type,WeekDate,MonthYear,TargetArea,TargetType,FocusPoints,CreatedBy,ServiceName,CreatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,GETDATE())',
+      [
+        title,
+        description || null,
+        type || 'daily',
+        weekDate || new Date().toISOString().split('T')[0],
+        monthYear || null,
+        targetArea || null,
+        targetType || null,
+        focusPoints || null,
+        createdBy || null,
+        serviceName || null,
+      ]
     );
-    res.status(201).json({ message: 'تم إنشاء البرنامج' });
+    res.status(201).json({ message: 'تم إنشاء وتعميم أمر المهمة بنجاح' });
   } catch (err) {
-    res.status(500).json({ error: 'خطأ في إنشاء البرنامج' });
+    console.error('Create program error:', err.message);
+    res.status(500).json({ error: 'خطأ في إنشاء أمر المهمة' });
   }
 });
 

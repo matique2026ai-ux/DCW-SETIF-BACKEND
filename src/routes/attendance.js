@@ -76,8 +76,15 @@ router.get('/map-data', async (req, res) => {
 
     const attendance = await db.query(
       pg
-        ? `SELECT "EmployeeId","CheckInTime","CheckOutTime","IsCheckedOut","CheckInLatitude","CheckInLongitude" FROM "TrackerAttendance" WHERE "Date" = $1`
-        : 'SELECT EmployeeId,CheckInTime,CheckOutTime,IsCheckedOut,CheckInLatitude,CheckInLongitude FROM TrackerAttendance WHERE Date = ?',
+        ? `SELECT "EmployeeId","CheckInTime","CheckOutTime","IsCheckedOut","CheckInLatitude","CheckInLongitude","CheckInPhoto","Notes" FROM "TrackerAttendance" WHERE "Date" = $1`
+        : 'SELECT EmployeeId,CheckInTime,CheckOutTime,IsCheckedOut,CheckInLatitude,CheckInLongitude,CheckInPhoto,Notes FROM TrackerAttendance WHERE Date = ?',
+      [today]
+    );
+
+    const visits = await db.query(
+      pg
+        ? `SELECT "Id","EmployeeId","CheckInTime","Latitude","Longitude","ShopName","ShopType","Photo","ViolationFound","Notes" FROM "TrackerVisits" WHERE "Date" = $1 ORDER BY "CheckInTime" ASC`
+        : 'SELECT Id,EmployeeId,CheckInTime,Latitude,Longitude,ShopName,ShopType,Photo,ViolationFound,Notes FROM TrackerVisits WHERE Date = ? ORDER BY CheckInTime ASC',
       [today]
     );
 
@@ -86,16 +93,44 @@ router.get('/map-data', async (req, res) => {
       if (!attendanceMap[a.EmployeeId]) attendanceMap[a.EmployeeId] = a;
     }
 
+    const visitsMap = {};
+    for (const v of visits) {
+      if (!visitsMap[v.EmployeeId]) visitsMap[v.EmployeeId] = [];
+      visitsMap[v.EmployeeId].push({
+        id: v.Id,
+        time: v.CheckInTime,
+        latitude: v.Latitude,
+        longitude: v.Longitude,
+        shopName: v.ShopName || 'معاينة ميدانية',
+        shopType: v.ShopType,
+        photo: v.Photo,
+        violationFound: v.ViolationFound,
+        notes: v.Notes,
+      });
+    }
+
     const result = targetEmployees.map(emp => {
       const att = attendanceMap[emp.Id];
+      const empVisits = visitsMap[emp.Id] || [];
+      const lastVisit = empVisits.length > 0 ? empVisits[empVisits.length - 1] : null;
+
       return {
         employeeId: emp.Id,
         name: emp.NomAr ? `${emp.NomAr} ${emp.PrenomAr}` : `${emp.Nom} ${emp.Prenom}`,
-        service: emp.Service, grade: emp.Grade,
-        hasCheckedIn: !!att, isCheckedOut: att ? att.IsCheckedOut : false,
+        service: emp.Service,
+        grade: emp.Grade,
+        hasCheckedIn: !!att,
+        isCheckedOut: att ? (att.IsCheckedOut === true || att.IsCheckedOut === 1) : false,
         checkInTime: att ? att.CheckInTime : null,
-        latitude: att ? att.CheckInLatitude : null,
-        longitude: att ? att.CheckInLongitude : null,
+        checkOutTime: att ? att.CheckOutTime : null,
+        latitude: lastVisit ? lastVisit.latitude : (att ? att.CheckInLatitude : null),
+        longitude: lastVisit ? lastVisit.longitude : (att ? att.CheckInLongitude : null),
+        checkInLatitude: att ? att.CheckInLatitude : null,
+        checkInLongitude: att ? att.CheckInLongitude : null,
+        checkInPhoto: att ? att.CheckInPhoto : null,
+        notes: att ? att.Notes : null,
+        visitsCount: empVisits.length,
+        visits: empVisits,
       };
     });
 
@@ -108,7 +143,7 @@ router.get('/map-data', async (req, res) => {
 
 router.post('/checkin', async (req, res) => {
   try {
-    const { employeeId, latitude, longitude, location } = req.body;
+    const { employeeId, latitude, longitude, location, photo, notes } = req.body;
     if (!employeeId) return res.status(400).json({ error: 'رقم الموظف مطلوب' });
 
     const db = await getConnection();
@@ -128,9 +163,9 @@ router.post('/checkin', async (req, res) => {
 
     await db.query(
       pg
-        ? `INSERT INTO "TrackerAttendance" ("EmployeeId","Date","CheckInTime","CheckInLocation","CheckInLatitude","CheckInLongitude","IsCheckedOut") VALUES ($1,$2,NOW(),$3,$4,$5,false)`
-        : `INSERT INTO TrackerAttendance (EmployeeId,Date,CheckInTime,CheckInLocation,CheckInLatitude,CheckInLongitude,IsCheckedOut) VALUES (?,?,GETDATE(),?,?,?,0)`,
-      [employeeId, today, location || null, latitude || null, longitude || null]
+        ? `INSERT INTO "TrackerAttendance" ("EmployeeId","Date","CheckInTime","CheckInLocation","CheckInLatitude","CheckInLongitude","CheckInPhoto","Notes","IsCheckedOut") VALUES ($1,$2,NOW(),$3,$4,$5,$6,$7,false)`
+        : `INSERT INTO TrackerAttendance (EmployeeId,Date,CheckInTime,CheckInLocation,CheckInLatitude,CheckInLongitude,CheckInPhoto,Notes,IsCheckedOut) VALUES (?,?,GETDATE(),?,?,?,?,?,0)`,
+      [employeeId, today, location || null, latitude || null, longitude || null, photo || null, notes || null]
     );
 
     const result = await db.query(
@@ -149,7 +184,7 @@ router.post('/checkin', async (req, res) => {
 
 router.post('/checkout', async (req, res) => {
   try {
-    const { employeeId, latitude, longitude, location } = req.body;
+    const { employeeId, latitude, longitude, location, notes } = req.body;
     if (!employeeId) return res.status(400).json({ error: 'رقم الموظف مطلوب' });
 
     const db = await getConnection();
@@ -169,9 +204,9 @@ router.post('/checkout', async (req, res) => {
 
     await db.query(
       pg
-        ? `UPDATE "TrackerAttendance" SET "CheckOutTime"=NOW(),"CheckOutLocation"=$1,"CheckOutLatitude"=$2,"CheckOutLongitude"=$3,"IsCheckedOut"=true WHERE "EmployeeId"=$4 AND "Date"=$5 AND "IsCheckedOut"=false`
-        : `UPDATE TrackerAttendance SET CheckOutTime=GETDATE(),CheckOutLocation=?,CheckOutLatitude=?,CheckOutLongitude=?,IsCheckedOut=1 WHERE EmployeeId=? AND Date=? AND IsCheckedOut=0`,
-      [location || null, latitude || null, longitude || null, employeeId, today]
+        ? `UPDATE "TrackerAttendance" SET "CheckOutTime"=NOW(),"CheckOutLocation"=$1,"CheckOutLatitude"=$2,"CheckOutLongitude"=$3,"Notes"=COALESCE($4,"Notes"),"IsCheckedOut"=true WHERE "EmployeeId"=$5 AND "Date"=$6 AND "IsCheckedOut"=false`
+        : `UPDATE TrackerAttendance SET CheckOutTime=GETDATE(),CheckOutLocation=?,CheckOutLatitude=?,CheckOutLongitude=?,Notes=COALESCE(?,Notes),IsCheckedOut=1 WHERE EmployeeId=? AND Date=? AND IsCheckedOut=0`,
+      [location || null, latitude || null, longitude || null, notes || null, employeeId, today]
     );
 
     const result = await db.query(
