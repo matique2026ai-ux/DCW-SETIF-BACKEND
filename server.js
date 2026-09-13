@@ -10,6 +10,7 @@ const attendanceRoutes = require('./src/routes/attendance');
 const dashboardRoutes = require('./src/routes/dashboard');
 const visitRoutes = require('./src/routes/visits');
 const deductionRoutes = require('./src/routes/deductions');
+const justificationRoutes = require('./src/routes/justifications');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -30,6 +31,7 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/visits', visitRoutes);
 app.use('/api/deductions', deductionRoutes);
+app.use('/api/justifications', justificationRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'DCW-SETIF-TRACKER API v3.0.0', db: isPostgres() ? 'postgresql' : 'sqlserver' });
@@ -108,6 +110,30 @@ async function ensureTables() {
       "CreatedAt" TIMESTAMP DEFAULT NOW()
     )` : null,
 
+    pg ? `CREATE TABLE IF NOT EXISTS "TrackerJustifications" (
+      "Id" SERIAL PRIMARY KEY, "EmployeeId" INT NOT NULL,
+      "Type" VARCHAR(50) DEFAULT 'general', "Title" VARCHAR(200),
+      "StartDate" DATE NOT NULL, "EndDate" DATE NOT NULL,
+      "DaysCount" INT DEFAULT 1, "DocumentPhoto" TEXT,
+      "Notes" TEXT, "Status" VARCHAR(20) DEFAULT 'pending',
+      "ReviewedBy" INT, "ReviewNotes" TEXT,
+      "CreatedAt" TIMESTAMP DEFAULT NOW()
+    )` : null,
+
+    pg ? `CREATE TABLE IF NOT EXISTS "TrackerEmployeeAdmin" (
+      "EmployeeId" INT PRIMARY KEY,
+      "AdministrativeStatus" VARCHAR(50) DEFAULT 'active',
+      "StatusStartDate" DATE,
+      "StatusEndDate" DATE,
+      "StatusNotes" TEXT,
+      "IsBrigadeLeader" BOOLEAN DEFAULT false,
+      "BrigadeName" VARCHAR(200),
+      "AssignedDepartment" VARCHAR(300),
+      "AssignedPosition" VARCHAR(200),
+      "UpdatedBy" INT,
+      "UpdatedAt" TIMESTAMP DEFAULT NOW()
+    )` : null,
+
     pg ? `CREATE TABLE IF NOT EXISTS "TrackerAbsences" (
       "Id" SERIAL PRIMARY KEY, "EmployeeId" INT NOT NULL,
       "Date" DATE NOT NULL, "Type" VARCHAR(20) DEFAULT 'absent',
@@ -120,6 +146,32 @@ async function ensureTables() {
   }
 
   if (!pg) {
+    await db.query(`IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'TrackerEmployeeAdmin')
+    BEGIN CREATE TABLE TrackerEmployeeAdmin (
+      EmployeeId INT PRIMARY KEY,
+      AdministrativeStatus NVARCHAR(50) DEFAULT 'active',
+      StatusStartDate DATE NULL,
+      StatusEndDate DATE NULL,
+      StatusNotes NVARCHAR(500) NULL,
+      IsBrigadeLeader BIT DEFAULT 0,
+      BrigadeName NVARCHAR(200) NULL,
+      AssignedDepartment NVARCHAR(300) NULL,
+      AssignedPosition NVARCHAR(200) NULL,
+      UpdatedBy INT NULL,
+      UpdatedAt DATETIME DEFAULT GETDATE(),
+      FOREIGN KEY (EmployeeId) REFERENCES Employes(Id)
+    ) END`);
+    await db.query(`IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'TrackerJustifications')
+    BEGIN CREATE TABLE TrackerJustifications (
+      Id INT IDENTITY(1,1) PRIMARY KEY, EmployeeId INT NOT NULL,
+      Type NVARCHAR(50) DEFAULT 'general', Title NVARCHAR(200) NULL,
+      StartDate DATE NOT NULL, EndDate DATE NOT NULL,
+      DaysCount INT DEFAULT 1, DocumentPhoto NVARCHAR(MAX) NULL,
+      Notes NVARCHAR(500) NULL, Status NVARCHAR(20) DEFAULT 'pending',
+      ReviewedBy INT NULL, ReviewNotes NVARCHAR(500) NULL,
+      CreatedAt DATETIME DEFAULT GETDATE(),
+      FOREIGN KEY (EmployeeId) REFERENCES Employes(Id)
+    ) END`);
     await db.query(`IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'TrackerAttendance')
     BEGIN CREATE TABLE TrackerAttendance (
       Id INT IDENTITY(1,1) PRIMARY KEY, EmployeeId INT NOT NULL, Date DATE NOT NULL,

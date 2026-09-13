@@ -67,8 +67,24 @@ router.get('/map-data', async (req, res) => {
 
     const allEmployees = await db.query(
       pg
-        ? `SELECT "Id","NomAr","PrenomAr","Nom","Prenom","Service","Grade" FROM "Employes" WHERE "EstActif" = true`
-        : 'SELECT Id,NomAr,PrenomAr,Nom,Prenom,Service,Grade FROM Employes WHERE EstActif = 1'
+        ? `SELECT e."Id", e."NomAr", e."PrenomAr", e."Nom", e."Prenom", 
+                  COALESCE(a."AssignedDepartment", e."Service") as "Service", 
+                  e."Grade",
+                  COALESCE(a."AdministrativeStatus", 'active') as "AdministrativeStatus",
+                  COALESCE(a."IsBrigadeLeader", false) as "IsBrigadeLeader",
+                  a."BrigadeName"
+           FROM "Employes" e
+           LEFT JOIN "TrackerEmployeeAdmin" a ON e."Id" = a."EmployeeId"
+           WHERE e."EstActif" = true`
+        : `SELECT e.Id, e.NomAr, e.PrenomAr, e.Nom, e.Prenom, 
+                  COALESCE(a.AssignedDepartment, e.Service) as Service, 
+                  e.Grade,
+                  COALESCE(a.AdministrativeStatus, 'active') as AdministrativeStatus,
+                  COALESCE(a.IsBrigadeLeader, 0) as IsBrigadeLeader,
+                  a.BrigadeName
+           FROM Employes e
+           LEFT JOIN TrackerEmployeeAdmin a ON e.Id = a.EmployeeId
+           WHERE e.EstActif = 1`
     );
     const targetEmployees = allEmployees.filter(e =>
       e.Service && TARGET_DEPARTMENTS.some(d => e.Service.includes(d))
@@ -119,6 +135,9 @@ router.get('/map-data', async (req, res) => {
         name: emp.NomAr ? `${emp.NomAr} ${emp.PrenomAr}` : `${emp.Nom} ${emp.Prenom}`,
         service: emp.Service,
         grade: emp.Grade,
+        administrativeStatus: emp.AdministrativeStatus || 'active',
+        isBrigadeLeader: emp.IsBrigadeLeader === true || emp.IsBrigadeLeader === 1,
+        brigadeName: emp.BrigadeName,
         hasCheckedIn: !!att,
         isCheckedOut: att ? (att.IsCheckedOut === true || att.IsCheckedOut === 1) : false,
         checkInTime: att ? att.CheckInTime : null,
