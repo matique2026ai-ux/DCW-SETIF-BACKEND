@@ -87,9 +87,10 @@ router.get('/map-data', async (req, res) => {
            LEFT JOIN TrackerEmployeeAdmin a ON e.Id = a.EmployeeId
            WHERE e.EstActif = 1`
     );
-    const targetEmployees = allEmployees.filter(e =>
-      e.Service && TARGET_DEPARTMENTS.some(d => e.Service.includes(d))
-    );
+    const targetEmployees = allEmployees.filter(e => {
+      const s = (e.Service || e.service || '').toString();
+      return s && TARGET_DEPARTMENTS.some(d => s.includes(d));
+    });
 
     const attendance = await db.query(
       pg
@@ -106,45 +107,68 @@ router.get('/map-data', async (req, res) => {
     );
 
     const attendanceMap = {};
-    for (const a of attendance) {
-      if (!attendanceMap[a.EmployeeId]) attendanceMap[a.EmployeeId] = a;
+    for (const a of (attendance || [])) {
+      const aEmpId = a.EmployeeId || a.employeeid;
+      if (aEmpId && !attendanceMap[aEmpId]) {
+        attendanceMap[aEmpId] = {
+          CheckInTime: a.CheckInTime || a.checkintime,
+          CheckOutTime: a.CheckOutTime || a.checkouttime,
+          IsCheckedOut: a.IsCheckedOut !== undefined ? a.IsCheckedOut : a.ischeckedout,
+          CheckInLatitude: a.CheckInLatitude !== undefined ? a.CheckInLatitude : a.checkinlatitude,
+          CheckInLongitude: a.CheckInLongitude !== undefined ? a.CheckInLongitude : a.checkinlongitude,
+          CheckInPhoto: a.CheckInPhoto || a.checkinphoto,
+          Notes: a.Notes || a.notes,
+        };
+      }
     }
 
     const visitsMap = {};
-    for (const v of visits) {
-      if (!visitsMap[v.EmployeeId]) visitsMap[v.EmployeeId] = [];
-      visitsMap[v.EmployeeId].push({
-        id: v.Id,
-        time: v.CheckInTime,
-        latitude: v.Latitude,
-        longitude: v.Longitude,
-        shopName: v.ShopName || 'معاينة ميدانية',
-        shopType: v.ShopType,
-        photo: v.Photo,
-        violationFound: v.ViolationFound,
-        notes: v.Notes,
-      });
+    for (const v of (visits || [])) {
+      const vEmpId = v.EmployeeId || v.employeeid;
+      if (vEmpId) {
+        if (!visitsMap[vEmpId]) visitsMap[vEmpId] = [];
+        visitsMap[vEmpId].push({
+          id: v.Id || v.id,
+          time: v.CheckInTime || v.checkintime,
+          latitude: v.Latitude !== undefined ? v.Latitude : v.latitude,
+          longitude: v.Longitude !== undefined ? v.Longitude : v.longitude,
+          shopName: v.ShopName || v.shopname || 'معاينة ميدانية',
+          shopType: v.ShopType || v.shoptype,
+          photo: v.Photo || v.photo,
+          violationFound: v.ViolationFound !== undefined ? v.ViolationFound : v.violationfound,
+          notes: v.Notes || v.notes,
+        });
+      }
     }
 
     const result = targetEmployees.map(emp => {
-      const att = attendanceMap[emp.Id];
-      const empVisits = visitsMap[emp.Id] || [];
+      const empId = emp.Id || emp.id;
+      const att = attendanceMap[empId];
+      const empVisits = visitsMap[empId] || [];
       const lastVisit = empVisits.length > 0 ? empVisits[empVisits.length - 1] : null;
 
       const isCheckedOut = att ? (att.IsCheckedOut === true || att.IsCheckedOut === 1) : false;
-      const isNightDuty = emp.AdministrativeStatus === 'special_mission';
+      const adminStatus = emp.AdministrativeStatus || emp.administrativestatus || 'active';
+      const isNightDuty = adminStatus === 'special_mission';
+      const isBrigadeLeader = (emp.IsBrigadeLeader || emp.isbrigadeleader) === true || (emp.IsBrigadeLeader || emp.isbrigadeleader) === 1;
 
       // Strict Privacy Rule: If the employee checked out and is NOT on night duty, do not stream live coordinates
       const allowLiveTracking = att && (!isCheckedOut || isNightDuty);
 
+      const nomAr = emp.NomAr || emp.nomar;
+      const prenomAr = emp.PrenomAr || emp.prenomar;
+      const nom = emp.Nom || emp.nom;
+      const prenom = emp.Prenom || emp.prenom;
+      const empName = nomAr ? `${nomAr} ${prenomAr || ''}`.trim() : `${nom || ''} ${prenom || ''}`.trim();
+
       return {
-        employeeId: emp.Id,
-        name: emp.NomAr ? `${emp.NomAr} ${emp.PrenomAr}` : `${emp.Nom} ${emp.Prenom}`,
-        service: emp.Service,
-        grade: emp.Grade,
-        administrativeStatus: emp.AdministrativeStatus || 'active',
-        isBrigadeLeader: emp.IsBrigadeLeader === true || emp.IsBrigadeLeader === 1,
-        brigadeName: emp.BrigadeName,
+        employeeId: empId,
+        name: empName,
+        service: emp.Service || emp.service,
+        grade: emp.Grade || emp.grade,
+        administrativeStatus: adminStatus,
+        isBrigadeLeader: isBrigadeLeader,
+        brigadeName: emp.BrigadeName || emp.brigadename,
         isNightDuty: isNightDuty,
         hasCheckedIn: !!att,
         isCheckedOut: isCheckedOut,
@@ -170,6 +194,7 @@ router.get('/map-data', async (req, res) => {
     res.status(500).json({ error: 'خطأ في جلب بيانات الخريطة' });
   }
 });
+
 
 router.post('/checkin', async (req, res) => {
   try {

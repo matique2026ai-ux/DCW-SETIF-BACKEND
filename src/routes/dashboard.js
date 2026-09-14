@@ -20,15 +20,20 @@ router.get('/stats', async (req, res) => {
         ? `SELECT "Id","Service" FROM "Employes" WHERE "EstActif" = true`
         : 'SELECT Id,Service FROM Employes WHERE EstActif = 1'
     );
-    const targetEmployees = allEmployees.filter(e =>
-      e.Service && TARGET_DEPARTMENTS.some(d => e.Service.includes(d))
-    );
+    const targetEmployees = allEmployees.filter(e => {
+      const s = (e.Service || e.service || '').toString();
+      return s && TARGET_DEPARTMENTS.some(d => s.includes(d));
+    });
 
     if (targetEmployees.length === 0) {
       return res.json({ totalInspectors: 0, presentToday: 0, checkedOutToday: 0, absentToday: 0, activePrograms: 0 });
     }
 
-    const targetIds = targetEmployees.map(e => e.Id);
+    const targetIds = targetEmployees.map(e => e.Id || e.id).filter(Boolean);
+
+    if (targetIds.length === 0) {
+      return res.json({ totalInspectors: 0, presentToday: 0, checkedOutToday: 0, absentToday: 0, activePrograms: 0 });
+    }
 
     const present = await db.query(
       pg
@@ -49,9 +54,9 @@ router.get('/stats', async (req, res) => {
     );
 
     const total = targetIds.length;
-    const p = pg ? parseInt(present[0].count) : present[0].count;
-    const c = pg ? parseInt(checkedOut[0].count) : checkedOut[0].count;
-    const prog = pg ? parseInt(programs[0].count) : programs[0].count;
+    const p = present && present.length > 0 ? parseInt(present[0].count || present[0].COUNT || 0, 10) : 0;
+    const c = checkedOut && checkedOut.length > 0 ? parseInt(checkedOut[0].count || checkedOut[0].COUNT || 0, 10) : 0;
+    const prog = programs && programs.length > 0 ? parseInt(programs[0].count || programs[0].COUNT || 0, 10) : 0;
 
     res.json({
       totalInspectors: total,
@@ -84,15 +89,28 @@ router.get('/recent-activity', async (req, res) => {
            ORDER BY ta.CreatedAt DESC`
     );
 
-    const activities = result
-      .filter(r => r.Service && TARGET_DEPARTMENTS.some(d => r.Service.includes(d)))
-      .map(r => ({
-        employeeName: r.NomAr ? `${r.NomAr} ${r.PrenomAr}` : `${r.Nom} ${r.Prenom}`,
-        date: r.Date, checkIn: r.CheckInTime, checkOut: r.CheckOutTime,
-      }));
+    const activities = (result || [])
+      .filter(r => {
+        const s = (r.Service || r.service || '').toString();
+        return s && TARGET_DEPARTMENTS.some(d => s.includes(d));
+      })
+      .map(r => {
+        const nomAr = r.NomAr || r.nomar;
+        const prenomAr = r.PrenomAr || r.prenomar;
+        const nom = r.Nom || r.nom;
+        const prenom = r.Prenom || r.prenom;
+        const empName = nomAr ? `${nomAr} ${prenomAr || ''}`.trim() : `${nom || ''} ${prenom || ''}`.trim();
+        return {
+          employeeName: empName,
+          date: r.Date || r.date,
+          checkIn: r.CheckInTime || r.checkintime,
+          checkOut: r.CheckOutTime || r.checkouttime,
+        };
+      });
 
     res.json(activities);
   } catch (err) {
+    console.error('Recent activity error:', err.message);
     res.status(500).json({ error: 'خطأ في جلب النشاطات' });
   }
 });
