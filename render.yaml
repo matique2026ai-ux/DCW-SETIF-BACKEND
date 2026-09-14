@@ -3,7 +3,7 @@ services:
     name: drh-setif-tracker-api
     runtime: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm install --no-audit
     startCommand: node server.js
     envVars:
       - key: DATABASE_URL
