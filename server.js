@@ -27,6 +27,10 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // Serve static frontend files (Flutter Web + downloads)
 app.use(express.static(path.join(__dirname, 'public')));
 
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/programs', programRoutes);
@@ -96,7 +100,11 @@ app.get('/download/DCW-SETIF-TRACKER.apk', serveApk);
 app.get('/download', serveApk);
 app.get('/apk', serveApk);
 
-// Fallback for Flutter Web SPA routes (Express 5 compatible)
+// Fallback for Flutter Web SPA routes
+app.get('/index.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 app.use((req, res, next) => {
   const url = req.originalUrl || req.url || req.path || '';
   if (url.startsWith('/api') || req.path.startsWith('/api')) {
