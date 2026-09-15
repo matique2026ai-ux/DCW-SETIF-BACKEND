@@ -7,7 +7,8 @@
 
 ## 🌐 روابط السيرفر والإنتاج (Live Production Server)
 
-* **رابط السيرفر الأساسي (Render Cloud):** `https://drh-setif-api.onrender.com/api`
+* **رابط تطبيق الويب المباشر (Render Static Site):** [https://dcw-setif-tracker.onrender.com](https://dcw-setif-tracker.onrender.com)
+* **رابط السيرفر الأساسي وقاعدة البيانات (Render API):** `https://drh-setif-api.onrender.com/api`
 * **المسارات الرئيسية:**
   * `POST /api/auth/login` — تسجيل الدخول والحصول على JWT Token
   * `POST /api/auth/change-password` — تغيير كلمة المرور

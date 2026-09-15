@@ -24,3 +24,13 @@
 * **Heads of Service**: `chef_concurrence`, `chef_consommation` / `chef123` (Role 2)
 * **Bureau Chief**: `bureau_user` / `bureau123` (Role 3)
 * **Inspectors**: `kriba`, `agent` / `Agent@2024` (Role 4)
+
+---
+
+## 🌐 بنية الاستضافة السحابية على Render
+
+| الخدمة | النوع | الرابط الحي | المستودع | الوظيفة |
+| :--- | :--- | :--- | :--- | :--- |
+| **واجهة الويب (Web App)** | `Static Site` | `https://dcw-setif-tracker.onrender.com` | `DCW-SETIF-TRACKER` | تطبيق الويب المستضاف على CDN |
+| **خادم الـ API** | `Web Service` | `https://drh-setif-api.onrender.com/api` | `DCW-SETIF-BACKEND` | خادم Node.js وقاعدة بيانات PostgreSQL |
+
