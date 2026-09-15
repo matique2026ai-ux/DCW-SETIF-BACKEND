@@ -3,7 +3,8 @@
 
 > **تاريخ آخر تحديث**: 14 سبتمبر 2026  
 > **مستودع المشروع**: [DCW-SETIF-BACKEND](https://github.com/matique2026ai-ux/DCW-SETIF-BACKEND)  
-> **المنصة السحابية**: `https://drh-setif-api.onrender.com/api`  
+> **رابط المنصة الحية (Render Web App)**: [dcw-setif-tracker.onrender.com](https://dcw-setif-tracker.onrender.com)  
+> **المنصة السحابية (Render Backend API)**: `https://drh-setif-api.onrender.com/api`  
 > **قاعدة البيانات**: PostgreSQL (Production على Render) + SQL Server / ODBC (Local)  
 > **المنطقة الزمنية**: `Africa/Algiers` (UTC+1)
 
