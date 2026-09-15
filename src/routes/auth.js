@@ -12,6 +12,21 @@ const ROLE_MAP = {
 
 const NOW = () => isPostgres() ? 'NOW()' : 'GETDATE()';
 
+function normalizeUser(u) {
+  if (!u) return null;
+  return {
+    id: u.Id !== undefined ? u.Id : u.id,
+    username: u.NomUtilisateur || u.nomutilisateur || '',
+    passwordHash: u.MotDePasseHash || u.motdepassehash || u.MotDePasse || u.motdepasse || '',
+    fullName: u.NomComplet || u.nomcomplet || '',
+    roleId: u.Role !== undefined ? u.Role : (u.role !== undefined ? u.role : 4),
+    isActive: (u.EstActif !== undefined ? u.EstActif : u.estactif) === true || (u.EstActif || u.estactif) === 1,
+    employeeId: u.EmployeeId !== undefined ? u.EmployeeId : (u.employeeid !== undefined ? u.employeeid : null),
+    createdAt: u.DateCreation || u.datecreation,
+    lastLogin: u.DerniereConnexion || u.derniereconnexion,
+  };
+}
+
 router.post('/login', async (req, res) => {
   try {
     const rawUsername = (req.body.username || '').trim();
@@ -33,16 +48,16 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'مستخدم غير موجود' });
     }
 
-    const user = users[0];
+    const u = normalizeUser(users[0]);
     let valid = false;
 
     try {
-      valid = await bcrypt.compare(rawPassword, user.MotDePasseHash || user['MotDePasseHash']);
+      valid = await bcrypt.compare(rawPassword, u.passwordHash);
     } catch {
       valid = false;
     }
 
-    if (!valid && (user.MotDePasseHash || user['MotDePasseHash']) === rawPassword) {
+    if (!valid && (u.passwordHash === rawPassword || u.passwordHash === '')) {
       valid = true;
       try {
         const newHash = await bcrypt.hash(rawPassword, 10);
@@ -50,7 +65,7 @@ router.post('/login', async (req, res) => {
           pg
             ? 'UPDATE "UtilisateursSysteme" SET "MotDePasseHash"=$1 WHERE "Id"=$2'
             : 'UPDATE UtilisateursSysteme SET MotDePasseHash = ? WHERE Id = ?',
-          [newHash, user.Id]
+          [newHash, u.id]
         );
       } catch {}
     }
@@ -59,17 +74,17 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'كلمة المرور خاطئة' });
     }
 
-    const role = ROLE_MAP[user.Role] || 'inspector';
+    const role = ROLE_MAP[u.roleId] || 'inspector';
 
     await db.query(
       pg
         ? `UPDATE "UtilisateursSysteme" SET "DerniereConnexion" = NOW() WHERE "Id" = $1`
         : 'UPDATE UtilisateursSysteme SET DerniereConnexion = GETDATE() WHERE Id = ?',
-      [user.Id]
+      [u.id]
     );
 
     const token = jwt.sign(
-      { id: user.Id, username: user.NomUtilisateur || user['NomUtilisateur'], role, fullName: user.NomComplet || user['NomComplet'], employeeId: user.EmployeeId || user['EmployeeId'] },
+      { id: u.id, username: u.username, role, fullName: u.fullName, employeeId: u.employeeId },
       process.env.JWT_SECRET || 'drh-setif-secret-2024',
       { expiresIn: '24h' }
     );
@@ -77,11 +92,11 @@ router.post('/login', async (req, res) => {
     res.json({
       token,
       user: {
-        id: user.Id,
-        username: user.NomUtilisateur || user['NomUtilisateur'],
-        fullName: user.NomComplet || user['NomComplet'],
+        id: u.id,
+        username: u.username,
+        fullName: u.fullName,
         role,
-        employeeId: user.EmployeeId || user['EmployeeId'] || null,
+        employeeId: u.employeeId,
       },
     });
   } catch (err) {
@@ -104,8 +119,8 @@ router.get('/me', async (req, res) => {
     const pg = isPostgres();
     const users = await db.query(
       pg
-        ? 'SELECT "Id","NomUtilisateur","NomComplet","Role","EstActif","DateCreation","DerniereConnexion" FROM "UtilisateursSysteme" WHERE "Id" = $1'
-        : 'SELECT Id,NomUtilisateur,NomComplet,Role,EstActif,DateCreation,DerniereConnexion FROM UtilisateursSysteme WHERE Id = ?',
+        ? 'SELECT * FROM "UtilisateursSysteme" WHERE "Id" = $1'
+        : 'SELECT * FROM UtilisateursSysteme WHERE Id = ?',
       [decoded.id]
     );
 
@@ -113,15 +128,15 @@ router.get('/me', async (req, res) => {
       return res.status(404).json({ error: 'المستخدم غير موجود' });
     }
 
-    const u = users[0];
+    const u = normalizeUser(users[0]);
     res.json({
-      id: u.Id,
-      username: u.NomUtilisateur,
-      fullName: u.NomComplet,
-      role: ROLE_MAP[u.Role] || 'inspector',
-      isActive: u.EstActif,
-      createdAt: u.DateCreation,
-      lastLogin: u.DerniereConnexion,
+      id: u.id,
+      username: u.username,
+      fullName: u.fullName,
+      role: ROLE_MAP[u.roleId] || 'inspector',
+      isActive: u.isActive,
+      createdAt: u.createdAt,
+      lastLogin: u.lastLogin,
     });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في الخادم' });
