@@ -53,10 +53,34 @@ router.get('/stats', async (req, res) => {
         : 'SELECT COUNT(*) as count FROM TrackerPrograms'
     );
 
+    // Fetch visits stats for today
+    const visitsStats = await db.query(
+      pg
+        ? `SELECT 
+             COUNT(*) as total_visits,
+             COUNT(CASE WHEN "ViolationFound" = true THEN 1 END) as violations_count,
+             COALESCE(SUM("SeizureValue"), 0) as total_seizure_value,
+             COUNT(CASE WHEN "IsApproved" = true THEN 1 END) as approved_count
+           FROM "TrackerVisits" WHERE "Date" = $1`
+        : `SELECT 
+             COUNT(*) as total_visits,
+             SUM(CASE WHEN ViolationFound = 1 THEN 1 ELSE 0 END) as violations_count,
+             ISNULL(SUM(SeizureValue), 0) as total_seizure_value,
+             SUM(CASE WHEN IsApproved = 1 THEN 1 ELSE 0 END) as approved_count
+           FROM TrackerVisits WHERE Date = ?`,
+      [today]
+    );
+
     const total = targetIds.length;
     const p = present && present.length > 0 ? parseInt(present[0].count || present[0].COUNT || 0, 10) : 0;
     const c = checkedOut && checkedOut.length > 0 ? parseInt(checkedOut[0].count || checkedOut[0].COUNT || 0, 10) : 0;
     const prog = programs && programs.length > 0 ? parseInt(programs[0].count || programs[0].COUNT || 0, 10) : 0;
+
+    const vRow = (visitsStats && visitsStats.length > 0) ? visitsStats[0] : {};
+    const totalVisits = parseInt(vRow.total_visits || vRow.TOTAL_VISITS || 0, 10);
+    const violationsCount = parseInt(vRow.violations_count || vRow.VIOLATIONS_COUNT || 0, 10);
+    const totalSeizureValue = parseFloat(vRow.total_seizure_value || vRow.TOTAL_SEIZURE_VALUE || 0);
+    const approvedCount = parseInt(vRow.approved_count || vRow.APPROVED_COUNT || 0, 10);
 
     res.json({
       totalInspectors: total,
@@ -64,6 +88,10 @@ router.get('/stats', async (req, res) => {
       checkedOutToday: c,
       absentToday: total - p > 0 ? total - p : 0,
       activePrograms: prog,
+      totalVisitsToday: totalVisits,
+      violationsToday: violationsCount,
+      totalSeizureValueToday: totalSeizureValue,
+      approvedVisitsToday: approvedCount,
     });
   } catch (err) {
     console.error('Dashboard stats error:', err.message);

@@ -10,13 +10,15 @@ router.get('/', async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();
-    const { date, employeeId } = req.query;
+    const { date, employeeId, isApproved } = req.query;
 
     let query = pg_q(pg,
       `SELECT tv."Id",tv."EmployeeId",tv."AssignmentId",tv."Date",tv."CheckInTime",tv."CheckOutTime",
               tv."Latitude",tv."Longitude",tv."Accuracy",tv."LocationName",
               tv."ShopName",tv."ShopType",tv."Photo",tv."Status",tv."Notes",
-              tv."ViolationFound",tv."ViolationType",tv."ViolationNotes",tv."CreatedAt",
+              tv."ViolationFound",tv."ViolationType",tv."ViolationNotes",
+              tv."LegalAction",tv."SeizureValue",tv."IsApproved",tv."ApprovedBy",tv."ApprovedAt",
+              tv."CreatedAt",
               e."NomAr",e."PrenomAr",e."Nom",e."Prenom",e."Service"
        FROM "TrackerVisits" tv
        JOIN "Employes" e ON tv."EmployeeId" = e."Id"`,
@@ -34,6 +36,11 @@ router.get('/', async (req, res) => {
     if (employeeId) {
       conditions.push(pg ? `tv."EmployeeId" = $${params.length + 1}` : 'tv.EmployeeId = ?');
       params.push(parseInt(employeeId));
+    }
+    if (isApproved !== undefined) {
+      const boolVal = isApproved === 'true' || isApproved === true;
+      conditions.push(pg ? `tv."IsApproved" = $${params.length + 1}` : 'tv.IsApproved = ?');
+      params.push(boolVal);
     }
 
     if (conditions.length > 0) query += ' WHERE ' + conditions.join(' AND ');
@@ -58,6 +65,8 @@ router.get('/today', async (req, res) => {
       `SELECT tv."Id",tv."EmployeeId",tv."Date",tv."CheckInTime",tv."CheckOutTime",
               tv."Latitude",tv."Longitude",tv."Accuracy",tv."LocationName",
               tv."ShopName",tv."ShopType",tv."Photo",tv."Status",tv."Notes",
+              tv."ViolationFound",tv."ViolationType",tv."ViolationNotes",
+              tv."LegalAction",tv."SeizureValue",tv."IsApproved",tv."ApprovedBy",tv."ApprovedAt",
               tv."CreatedAt",
               e."NomAr",e."PrenomAr",e."Nom",e."Prenom",e."Service"
        FROM "TrackerVisits" tv
@@ -87,7 +96,12 @@ router.get('/today', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { employeeId, latitude, longitude, accuracy, locationName, shopName, shopType, photo, assignmentId, notes } = req.body;
+    const {
+      employeeId, latitude, longitude, accuracy, locationName,
+      shopName, shopType, photo, assignmentId, notes,
+      violationFound, violationType, violationNotes,
+      legalAction, seizureValue
+    } = req.body;
     if (!employeeId || !latitude || !longitude) {
       return res.status(400).json({ error: 'البيانات المطلوبة: employeeId, latitude, longitude' });
     }
@@ -95,12 +109,26 @@ router.post('/', async (req, res) => {
     const db = await getConnection();
     const pg = isPostgres();
     const today = getTodayAlgeria();
+    const hasViolation = violationFound === true || violationFound === 'true';
+    const sValue = parseFloat(seizureValue) || 0;
 
     await db.query(
       pg
-        ? `INSERT INTO "TrackerVisits" ("EmployeeId","AssignmentId","Date","Latitude","Longitude","Accuracy","LocationName","ShopName","ShopType","Photo","Notes","Status") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'active')`
-        : `INSERT INTO TrackerVisits (EmployeeId,AssignmentId,Date,Latitude,Longitude,Accuracy,LocationName,ShopName,ShopType,Photo,Notes,Status) VALUES (?,?,?,?,?,?,?,?,?,?,?,'active')`,
-      [employeeId, assignmentId || null, today, latitude, longitude, accuracy || null, locationName || null, shopName || null, shopType || null, photo || null, notes || null]
+        ? `INSERT INTO "TrackerVisits" (
+            "EmployeeId","AssignmentId","Date","Latitude","Longitude","Accuracy",
+            "LocationName","ShopName","ShopType","Photo","Notes","Status",
+            "ViolationFound","ViolationType","ViolationNotes","LegalAction","SeizureValue"
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'completed',$12,$13,$14,$15,$16)`
+        : `INSERT INTO TrackerVisits (
+            EmployeeId,AssignmentId,Date,Latitude,Longitude,Accuracy,
+            LocationName,ShopName,ShopType,Photo,Notes,Status,
+            ViolationFound,ViolationType,ViolationNotes,LegalAction,SeizureValue
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,'completed',?,?,?,?,?)`,
+      [
+        employeeId, assignmentId || null, today, latitude, longitude, accuracy || null,
+        locationName || null, shopName || null, shopType || null, photo || null, notes || null,
+        hasViolation, violationType || null, violationNotes || null, legalAction || null, sValue
+      ]
     );
 
     const result = await db.query(
@@ -113,25 +141,28 @@ router.post('/', async (req, res) => {
     res.status(201).json(result[0]);
   } catch (err) {
     console.error('Create visit error:', err.message);
-    res.status(500).json({ error: 'خطأ في تسجيل الزيارة' });
+    res.status(500).json({ error: 'خطأ في تسجيل الزيارة: ' + err.message });
   }
 });
 
 router.post('/:id/checkout', async (req, res) => {
   try {
-    const { violationFound, violationType, violationNotes, notes } = req.body;
+    const { violationFound, violationType, violationNotes, notes, legalAction, seizureValue } = req.body;
     const db = await getConnection();
     const pg = isPostgres();
+    const sValue = parseFloat(seizureValue) || 0;
 
     await db.query(
       pg
         ? `UPDATE "TrackerVisits" SET "CheckOutTime"=NOW(),"Status"='completed',
            "ViolationFound"=$1,"ViolationType"=$2,"ViolationNotes"=$3,
-           "Notes"=COALESCE($4,"Notes") WHERE "Id"=$5`
+           "LegalAction"=$4,"SeizureValue"=$5,
+           "Notes"=COALESCE($6,"Notes") WHERE "Id"=$7`
         : `UPDATE TrackerVisits SET CheckOutTime=GETDATE(),Status='completed',
            ViolationFound=?,ViolationType=?,ViolationNotes=?,
+           LegalAction=?,SeizureValue=?,
            Notes=ISNULL(?,Notes) WHERE Id=?`,
-      [violationFound ? true : false, violationType || null, violationNotes || null, notes || null, req.params.id]
+      [violationFound ? true : false, violationType || null, violationNotes || null, legalAction || null, sValue, notes || null, req.params.id]
     );
 
     const result = await db.query(
@@ -143,6 +174,37 @@ router.post('/:id/checkout', async (req, res) => {
     res.json(result[0]);
   } catch (err) {
     res.status(500).json({ error: 'خطأ في إنهاء الزيارة' });
+  }
+});
+
+// Approve / Stamp a visit (رئيس المصلحة أو رئيس المفتشية أو المدير)
+router.post('/:id/approve', async (req, res) => {
+  try {
+    const { approvedBy } = req.body;
+    const db = await getConnection();
+    const pg = isPostgres();
+
+    await db.query(
+      pg
+        ? `UPDATE "TrackerVisits" SET "IsApproved"=true, "ApprovedBy"=$1, "ApprovedAt"=NOW() WHERE "Id"=$2`
+        : `UPDATE TrackerVisits SET IsApproved=1, ApprovedBy=?, ApprovedAt=GETDATE() WHERE Id=?`,
+      [approvedBy || 'رئيس المصلحة المختصة', req.params.id]
+    );
+
+    const result = await db.query(
+      pg
+        ? `SELECT * FROM "TrackerVisits" WHERE "Id" = $1`
+        : 'SELECT * FROM TrackerVisits WHERE Id = ?',
+      [req.params.id]
+    );
+    res.json({
+      success: true,
+      message: 'تم تأشير واعتماد المعاينة رسمياً بنجاح ✅',
+      visit: result[0],
+    });
+  } catch (err) {
+    console.error('Approve visit error:', err.message);
+    res.status(500).json({ error: 'خطأ في تأشير المعاينة' });
   }
 });
 
@@ -178,3 +240,4 @@ router.get('/employee/:employeeId/summary', async (req, res) => {
 });
 
 module.exports = router;
+
