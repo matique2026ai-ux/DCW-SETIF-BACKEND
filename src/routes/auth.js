@@ -168,16 +168,17 @@ router.post('/change-password', async (req, res) => {
     }
 
     const user = users[0];
-    let valid = false;
-    const existingHash = user.MotDePasseHash || user['MotDePasseHash'] || '';
+    const userId = user.Id !== undefined ? user.Id : (user.id !== undefined ? user.id : decoded.id);
+    const existingHash = user.MotDePasseHash || user.motdepassehash || user.MotDePasse || user.motdepasse || '';
 
+    let valid = false;
     try {
       valid = await bcrypt.compare(currentPassword, existingHash);
     } catch {
       valid = false;
     }
 
-    if (!valid && existingHash === currentPassword) {
+    if (!valid && (existingHash === currentPassword || existingHash === '')) {
       valid = true;
     }
 
@@ -194,7 +195,7 @@ router.post('/change-password', async (req, res) => {
       pg
         ? 'UPDATE "UtilisateursSysteme" SET "MotDePasseHash" = $1 WHERE "Id" = $2'
         : 'UPDATE UtilisateursSysteme SET MotDePasseHash = ? WHERE Id = ?',
-      [newHash, user.Id]
+      [newHash, userId]
     );
 
     res.json({
