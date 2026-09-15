@@ -1,11 +1,11 @@
 {
-    "name": "drh_setif_tracker",
-    "short_name": "drh_setif_tracker",
+    "name": "مديرية التجارة سطيف — منصة الرقابة والتفتيش",
+    "short_name": "مديرية التجارة",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#1A0A1F",
+    "theme_color": "#D4AF37",
+    "description": "منصة الرقابة والتفتيش الميداني لولاية سطيف",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
