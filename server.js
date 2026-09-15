@@ -14,6 +14,8 @@ const dashboardRoutes = require('./src/routes/dashboard');
 const visitRoutes = require('./src/routes/visits');
 const deductionRoutes = require('./src/routes/deductions');
 const justificationRoutes = require('./src/routes/justifications');
+const inquiryRoutes = require('./src/routes/inquiries');
+const settingRoutes = require('./src/routes/settings');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -39,6 +41,8 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/visits', visitRoutes);
 app.use('/api/deductions', deductionRoutes);
 app.use('/api/justifications', justificationRoutes);
+app.use('/api/inquiries', inquiryRoutes);
+app.use('/api/settings', settingRoutes);
 
 // Reset / Clean test attendance for fresh live demonstration
 app.all('/api/clean-test-data', async (req, res) => {
@@ -201,6 +205,36 @@ async function ensureTables() {
       "Date" DATE NOT NULL, "Type" VARCHAR(20) DEFAULT 'absent',
       "Reason" TEXT, "VerifiedBy" INT
     )` : null,
+
+    pg ? `CREATE TABLE IF NOT EXISTS "TrackerInquiries" (
+      "Id" SERIAL PRIMARY KEY, "EmployeeId" INT NOT NULL,
+      "Type" VARCHAR(50) DEFAULT 'unjustified_absence',
+      "Subject" VARCHAR(300) NOT NULL,
+      "IncidentDate" DATE NOT NULL,
+      "LateMinutes" INT DEFAULT 0,
+      "Details" TEXT,
+      "Status" VARCHAR(30) DEFAULT 'sent',
+      "SentBy" INT NOT NULL,
+      "SentAt" TIMESTAMP DEFAULT NOW(),
+      "EmployeeReply" TEXT,
+      "ReplyDate" TIMESTAMP,
+      "ReplyAttachment" TEXT,
+      "DirectorDecision" VARCHAR(50),
+      "DirectorNotes" TEXT,
+      "DeductionDays" DECIMAL(4,1) DEFAULT 0.0,
+      "DecisionDate" TIMESTAMP,
+      "ExecutedBy" INT,
+      "ExecutedAt" TIMESTAMP,
+      "ExecutionNotes" TEXT,
+      "CreatedAt" TIMESTAMP DEFAULT NOW()
+    )` : null,
+
+    pg ? `CREATE TABLE IF NOT EXISTS "TrackerSettings" (
+      "Key" VARCHAR(100) PRIMARY KEY,
+      "Value" VARCHAR(500) NOT NULL,
+      "Description" TEXT,
+      "UpdatedAt" TIMESTAMP DEFAULT NOW()
+    )` : null,
   ];
 
   for (const sql of tables) {
@@ -296,6 +330,28 @@ async function ensureTables() {
       Amount DECIMAL(10,2) NULL, DaysCount INT NULL,
       Status NVARCHAR(20) DEFAULT 'pending', Evidence NVARCHAR(MAX) NULL,
       CreatedAt DATETIME DEFAULT GETDATE()
+    ) END`);
+    await db.query(`IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'TrackerInquiries')
+    BEGIN CREATE TABLE TrackerInquiries (
+      Id INT IDENTITY(1,1) PRIMARY KEY, EmployeeId INT NOT NULL,
+      Type NVARCHAR(50) DEFAULT 'unjustified_absence',
+      Subject NVARCHAR(300) NOT NULL, IncidentDate DATE NOT NULL,
+      LateMinutes INT DEFAULT 0, Details NVARCHAR(MAX) NULL,
+      Status NVARCHAR(30) DEFAULT 'sent', SentBy INT NOT NULL,
+      SentAt DATETIME DEFAULT GETDATE(), EmployeeReply NVARCHAR(MAX) NULL,
+      ReplyDate DATETIME NULL, ReplyAttachment NVARCHAR(MAX) NULL,
+      DirectorDecision NVARCHAR(50) NULL, DirectorNotes NVARCHAR(MAX) NULL,
+      DeductionDays DECIMAL(4,1) DEFAULT 0.0, DecisionDate DATETIME NULL,
+      ExecutedBy INT NULL, ExecutedAt DATETIME NULL, ExecutionNotes NVARCHAR(MAX) NULL,
+      CreatedAt DATETIME DEFAULT GETDATE(),
+      FOREIGN KEY (EmployeeId) REFERENCES Employes(Id)
+    ) END`);
+    await db.query(`IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'TrackerSettings')
+    BEGIN CREATE TABLE TrackerSettings (
+      [Key] NVARCHAR(100) PRIMARY KEY,
+      [Value] NVARCHAR(500) NOT NULL,
+      Description NVARCHAR(500) NULL,
+      UpdatedAt DATETIME DEFAULT GETDATE()
     ) END`);
     console.log('✅ SQL Server tables ensured');
   } else {

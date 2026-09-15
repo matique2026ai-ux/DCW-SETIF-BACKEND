@@ -61,6 +61,127 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET delays and attendance summary with morning grace tolerance threshold (08:45 AM)
+router.get('/delays-summary', async (req, res) => {
+  try {
+    const db = await getConnection();
+    const pg = isPostgres();
+    const { month, employeeId } = req.query; // month e.g. '2026-09'
+
+    // Fetch all active inspection employees
+    const employees = await db.query(
+      pg
+        ? `SELECT e."Id", e."NomAr", e."PrenomAr", e."Nom", e."Prenom", e."Service", e."Grade"
+           FROM "Employes" e
+           WHERE e."EstActif" = true`
+        : `SELECT e.Id, e.NomAr, e.PrenomAr, e.Nom, e.Prenom, e.Service, e.Grade
+           FROM Employes e
+           WHERE e.EstActif = 1`
+    );
+
+    // Fetch attendance records
+    let attQuery = pg
+      ? `SELECT "EmployeeId", "Date", "CheckInTime", "IsCheckedOut"
+         FROM "TrackerAttendance"`
+      : `SELECT EmployeeId, Date, CheckInTime, IsCheckedOut
+         FROM TrackerAttendance`;
+
+    const attParams = [];
+    if (month) {
+      attQuery += pg ? ` WHERE TO_CHAR("Date", 'YYYY-MM') = $1` : ` WHERE FORMAT(Date, 'yyyy-MM') = ?`;
+      attParams.push(month);
+    }
+    attQuery += pg ? ` ORDER BY "CheckInTime" ASC` : ` ORDER BY CheckInTime ASC`;
+
+    const attendanceRecords = await db.query(attQuery, attParams);
+
+    // Group attendance by employee
+    const attByEmp = {};
+    for (const a of attendanceRecords) {
+      const empId = a.EmployeeId || a.employeeid;
+      if (!attByEmp[empId]) attByEmp[empId] = [];
+      attByEmp[empId].push(a);
+    }
+
+    // Dynamic tolerance threshold: query param or database setting (default 08:45)
+    let graceTimeStr = req.query.graceTime;
+    if (!graceTimeStr) {
+      try {
+        const settingRows = await db.query(
+          pg ? `SELECT "Value" FROM "TrackerSettings" WHERE "Key" = 'morning_grace_time'` : `SELECT [Value] FROM TrackerSettings WHERE [Key] = 'morning_grace_time'`
+        );
+        if (settingRows && settingRows.length > 0) {
+          graceTimeStr = settingRows[0].Value || settingRows[0].value;
+        }
+      } catch (_) {}
+    }
+    if (!graceTimeStr) graceTimeStr = '08:45';
+
+    const [gHour, gMin] = graceTimeStr.split(':').map(Number);
+    const GRACE_MINUTES = (isNaN(gHour) ? 8 : gHour) * 60 + (isNaN(gMin) ? 45 : gMin);
+
+    const summary = employees.map(emp => {
+      const empId = emp.Id || emp.id;
+      const records = attByEmp[empId] || [];
+      let totalLateMinutes = 0;
+      let lateDaysCount = 0;
+      const lateDetails = [];
+
+      for (const rec of records) {
+        const rawTime = rec.CheckInTime || rec.checkintime;
+        if (!rawTime) continue;
+        const d = new Date(rawTime);
+        // Algeria time offset
+        const hours = d.getHours();
+        const mins = d.getMinutes();
+        const currentMins = hours * 60 + mins;
+
+        if (currentMins > GRACE_MINUTES) {
+          const delay = currentMins - GRACE_MINUTES;
+          totalLateMinutes += delay;
+          lateDaysCount++;
+          lateDetails.push({
+            date: rec.Date || rec.date,
+            checkInTime: `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`,
+            lateMinutes: delay,
+          });
+        }
+      }
+
+      const totalLateHours = (totalLateMinutes / 60).toFixed(1);
+      // Algerian Civil Service deduction rule: 8h = 1 day, 4h = 0.5 day
+      const suggestedDeductionDays = Math.floor(totalLateMinutes / 480) + ((totalLateMinutes % 480) >= 240 ? 0.5 : 0);
+
+      const nomAr = emp.NomAr || emp.nomar;
+      const prenomAr = emp.PrenomAr || emp.prenomar;
+      const name = nomAr ? `${nomAr} ${prenomAr || ''}`.trim() : `${emp.Nom || ''} ${emp.Prenom || ''}`.trim();
+
+      return {
+        employeeId: empId,
+        name: name,
+        service: emp.Service || emp.service,
+        grade: emp.Grade || emp.grade,
+        attendedDaysCount: records.length,
+        lateDaysCount: lateDaysCount,
+        totalLateMinutes: totalLateMinutes,
+        totalLateHours: parseFloat(totalLateHours),
+        suggestedDeductionDays: suggestedDeductionDays,
+        lateDetails: lateDetails,
+      };
+    });
+
+    if (employeeId) {
+      const single = summary.find(s => s.employeeId === parseInt(employeeId));
+      return res.json(single || null);
+    }
+
+    res.json(summary);
+  } catch (err) {
+    console.error('Delays summary error:', err.message);
+    res.status(500).json({ error: 'خطأ في حساب ملخص التأخرات: ' + err.message });
+  }
+});
+
 router.get('/map-data', async (req, res) => {
   try {
     const db = await getConnection();
