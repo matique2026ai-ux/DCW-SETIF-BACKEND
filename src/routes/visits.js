@@ -96,21 +96,55 @@ router.get('/today', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
+    const authHeader = req.headers.authorization;
+    let jwtEmployeeId = null;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'drh-setif-secret-2024');
+        jwtEmployeeId = decoded.employeeId || decoded.id;
+      } catch (_) {}
+    }
+
     const {
-      employeeId, latitude, longitude, accuracy, locationName,
-      shopName, shopType, photo, assignmentId, notes,
-      violationFound, violationType, violationNotes,
-      legalAction, seizureValue
+      employeeId, EmployeeId,
+      latitude, Latitude,
+      longitude, Longitude,
+      accuracy, Accuracy,
+      locationName, LocationName, Location,
+      shopName, ShopName, TraderName,
+      shopType, ShopType, ActivityType,
+      photo, Photo,
+      assignmentId, AssignmentId,
+      notes, Notes,
+      violationFound, HasViolation, ViolationFound,
+      violationType, ViolationType,
+      violationNotes, ViolationNotes,
+      legalAction, LegalAction,
+      seizureValue, SeizureValue
     } = req.body;
-    if (!employeeId || !latitude || !longitude) {
+
+    const finalEmpId = employeeId || EmployeeId || jwtEmployeeId;
+    const finalLat = latitude !== undefined ? latitude : Latitude;
+    const finalLng = longitude !== undefined ? longitude : Longitude;
+
+    if (!finalEmpId || finalLat === undefined || finalLng === undefined) {
       return res.status(400).json({ error: 'البيانات المطلوبة: employeeId, latitude, longitude' });
     }
+
+    const finalShopName = shopName || ShopName || TraderName || null;
+    const finalShopType = shopType || ShopType || ActivityType || null;
+    const finalLoc = locationName || LocationName || Location || null;
+    const finalPhoto = photo || Photo || null;
+    const finalNotes = notes || Notes || null;
+    const finalViolationFound = violationFound === true || violationFound === 'true' || HasViolation === true || ViolationFound === true;
+    const finalViolationType = violationType || ViolationType || null;
+    const finalViolationNotes = violationNotes || ViolationNotes || null;
+    const finalLegalAction = legalAction || LegalAction || null;
+    const sValue = parseFloat(seizureValue || SeizureValue) || 0;
 
     const db = await getConnection();
     const pg = isPostgres();
     const today = getTodayAlgeria();
-    const hasViolation = violationFound === true || violationFound === 'true';
-    const sValue = parseFloat(seizureValue) || 0;
 
     await db.query(
       pg
@@ -125,9 +159,9 @@ router.post('/', async (req, res) => {
             ViolationFound,ViolationType,ViolationNotes,LegalAction,SeizureValue
           ) VALUES (?,?,?,?,?,?,?,?,?,?,?,'completed',?,?,?,?,?)`,
       [
-        employeeId, assignmentId || null, today, latitude, longitude, accuracy || null,
-        locationName || null, shopName || null, shopType || null, photo || null, notes || null,
-        hasViolation, violationType || null, violationNotes || null, legalAction || null, sValue
+        finalEmpId, assignmentId || AssignmentId || null, today, finalLat, finalLng, accuracy || Accuracy || null,
+        finalLoc, finalShopName, finalShopType, finalPhoto, finalNotes,
+        finalViolationFound, finalViolationType, finalViolationNotes, finalLegalAction, sValue
       ]
     );
 
@@ -135,7 +169,7 @@ router.post('/', async (req, res) => {
       pg
         ? `SELECT * FROM "TrackerVisits" WHERE "EmployeeId" = $1 AND "Date" = $2 ORDER BY "Id" DESC LIMIT 1`
         : 'SELECT TOP 1 * FROM TrackerVisits WHERE EmployeeId = ? AND Date = ? ORDER BY Id DESC',
-      [employeeId, today]
+      [finalEmpId, today]
     );
 
     res.status(201).json(result[0]);

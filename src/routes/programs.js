@@ -41,8 +41,31 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { title, description, type, weekDate, monthYear, targetArea, targetType, focusPoints, createdBy, serviceName } = req.body;
-    if (!title) return res.status(400).json({ error: 'عنوان أمر المهمة / البرنامج مطلوب' });
+    const {
+      title, Titre,
+      description, Description,
+      type, Type,
+      weekDate, WeekDate, DateDebut,
+      monthYear, MonthYear,
+      targetArea, TargetArea, Zone,
+      targetType, TargetType,
+      focusPoints, FocusPoints,
+      createdBy, CreatedBy,
+      serviceName, ServiceName
+    } = req.body;
+
+    const finalTitle = (title || Titre || '').trim();
+    if (!finalTitle) return res.status(400).json({ error: 'عنوان أمر المهمة / البرنامج مطلوب' });
+
+    const finalDesc = description || Description || null;
+    const finalType = type || Type || 'daily';
+    const finalWeekDate = weekDate || WeekDate || DateDebut || getTodayAlgeria();
+    const finalMonth = monthYear || MonthYear || null;
+    const finalArea = targetArea || TargetArea || Zone || null;
+    const finalTargetType = targetType || TargetType || null;
+    const finalFocus = focusPoints || FocusPoints || null;
+    const finalCreatedBy = createdBy || CreatedBy || null;
+    const finalService = serviceName || ServiceName || null;
 
     const db = await getConnection();
     const pg = isPostgres();
@@ -51,22 +74,22 @@ router.post('/', async (req, res) => {
         ? `INSERT INTO "TrackerPrograms" ("Title","Description","Type","WeekDate","MonthYear","TargetArea","TargetType","FocusPoints","CreatedBy","ServiceName","CreatedAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())`
         : 'INSERT INTO TrackerPrograms (Title,Description,Type,WeekDate,MonthYear,TargetArea,TargetType,FocusPoints,CreatedBy,ServiceName,CreatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,GETDATE())',
       [
-        title,
-        description || null,
-        type || 'daily',
-        weekDate || getTodayAlgeria(),
-        monthYear || null,
-        targetArea || null,
-        targetType || null,
-        focusPoints || null,
-        createdBy || null,
-        serviceName || null,
+        finalTitle,
+        finalDesc,
+        finalType,
+        finalWeekDate,
+        finalMonth,
+        finalArea,
+        finalTargetType,
+        finalFocus,
+        finalCreatedBy,
+        finalService,
       ]
     );
-    res.status(201).json({ message: 'تم إنشاء وتعميم أمر المهمة بنجاح' });
+    res.status(201).json({ success: true, message: 'تم إنشاء وتعميم أمر المهمة بنجاح' });
   } catch (err) {
     console.error('Create program error:', err.message);
-    res.status(500).json({ error: 'خطأ في إنشاء أمر المهمة' });
+    res.status(500).json({ error: 'خطأ في إنشاء أمر المهمة: ' + err.message });
   }
 });
 

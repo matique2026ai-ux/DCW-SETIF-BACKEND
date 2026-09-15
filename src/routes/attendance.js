@@ -198,8 +198,32 @@ router.get('/map-data', async (req, res) => {
 
 router.post('/checkin', async (req, res) => {
   try {
-    const { employeeId, latitude, longitude, location, photo, notes } = req.body;
-    if (!employeeId) return res.status(400).json({ error: 'رقم الموظف مطلوب' });
+    const authHeader = req.headers.authorization;
+    let jwtEmployeeId = null;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'drh-setif-secret-2024');
+        jwtEmployeeId = decoded.employeeId || decoded.id;
+      } catch (_) {}
+    }
+
+    const {
+      employeeId, EmployeeId,
+      latitude, Latitude,
+      longitude, Longitude,
+      location, locationName, LocationName,
+      photo, Photo,
+      notes, Notes
+    } = req.body;
+
+    const finalEmpId = employeeId || EmployeeId || jwtEmployeeId;
+    if (!finalEmpId) return res.status(400).json({ error: 'رقم الموظف مطلوب' });
+
+    const finalLat = latitude !== undefined ? latitude : Latitude;
+    const finalLng = longitude !== undefined ? longitude : Longitude;
+    const finalLoc = location || locationName || LocationName || null;
+    const finalPhoto = photo || Photo || null;
+    const finalNotes = notes || Notes || null;
 
     const db = await getConnection();
     const pg = isPostgres();
@@ -209,31 +233,31 @@ router.post('/checkin', async (req, res) => {
       pg
         ? `SELECT "Id" FROM "TrackerAttendance" WHERE "EmployeeId" = $1 AND "Date" = $2 AND "IsCheckedOut" = false`
         : 'SELECT Id FROM TrackerAttendance WHERE EmployeeId = ? AND Date = ? AND IsCheckedOut = 0',
-      [employeeId, today]
+      [finalEmpId, today]
     );
 
     if (existing && existing.length > 0) {
-      return res.status(400).json({ error: 'الموظف مسجل حضوره بالفعل اليوم' });
+      return res.status(200).json({ success: true, message: 'الموظف مسجل حضوره بالفعل اليوم', alreadyCheckedIn: true });
     }
 
     await db.query(
       pg
         ? `INSERT INTO "TrackerAttendance" ("EmployeeId","Date","CheckInTime","CheckInLocation","CheckInLatitude","CheckInLongitude","CheckInPhoto","Notes","IsCheckedOut") VALUES ($1,$2,NOW(),$3,$4,$5,$6,$7,false)`
         : `INSERT INTO TrackerAttendance (EmployeeId,Date,CheckInTime,CheckInLocation,CheckInLatitude,CheckInLongitude,CheckInPhoto,Notes,IsCheckedOut) VALUES (?,?,GETDATE(),?,?,?,?,?,0)`,
-      [employeeId, today, location || null, latitude || null, longitude || null, photo || null, notes || null]
+      [finalEmpId, today, finalLoc, finalLat || null, finalLng || null, finalPhoto, finalNotes]
     );
 
     const result = await db.query(
       pg
         ? `SELECT * FROM "TrackerAttendance" WHERE "EmployeeId" = $1 AND "Date" = $2 ORDER BY "Id" DESC LIMIT 1`
         : 'SELECT TOP 1 * FROM TrackerAttendance WHERE EmployeeId = ? AND Date = ? ORDER BY Id DESC',
-      [employeeId, today]
+      [finalEmpId, today]
     );
 
-    res.status(201).json(result[0]);
+    res.status(201).json(result[0] || { success: true, message: 'تم تسجيل الحضور بنجاح' });
   } catch (err) {
     console.error('Checkin error:', err.message);
-    res.status(500).json({ error: 'خطأ في تسجيل الحضور' });
+    res.status(500).json({ error: 'خطأ في تسجيل الحضور: ' + err.message });
   }
 });
 
