@@ -99,7 +99,7 @@ app.all('/api/clean-test-data', async (req, res) => {
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'DCW-SETIF-TRACKER API v3.0.0',
+    message: 'DCW-SETIF-TRACKER API v3.1.0-cancel-checkout',
     timezone: 'Africa/Algiers (UTC+1)',
     algeriaDate: getTodayAlgeria(),
     algeriaTime: getNowAlgeriaIso(),
