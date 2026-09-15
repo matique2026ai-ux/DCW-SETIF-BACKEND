@@ -1,4 +1,5 @@
 const express = require('express');
+const jwt = require('jsonwebtoken');
 const { getConnection, isPostgres } = require('../config/database');
 const { getTodayAlgeria } = require('../utils/dateUtils');
 

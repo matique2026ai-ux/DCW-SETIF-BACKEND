@@ -1,4 +1,5 @@
 const express = require('express');
+const jwt = require('jsonwebtoken');
 const { getConnection, isPostgres } = require('../config/database');
 const { getTodayAlgeria } = require('../utils/dateUtils');
 
@@ -212,7 +213,7 @@ router.post('/:id/checkout', async (req, res) => {
 });
 
 // Approve / Stamp a visit (رئيس المصلحة أو رئيس المفتشية أو المدير)
-router.post('/:id/approve', async (req, res) => {
+const handleApprove = async (req, res) => {
   try {
     const { approvedBy } = req.body;
     const db = await getConnection();
@@ -240,7 +241,10 @@ router.post('/:id/approve', async (req, res) => {
     console.error('Approve visit error:', err.message);
     res.status(500).json({ error: 'خطأ في تأشير المعاينة' });
   }
-});
+};
+
+router.post('/:id/approve', handleApprove);
+router.put('/:id/approve', handleApprove);
 
 router.get('/employee/:employeeId/summary', async (req, res) => {
   try {
