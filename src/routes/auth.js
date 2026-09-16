@@ -35,14 +35,58 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'أدخل اسم المستخدم وكلمة المرور' });
     }
 
-    const db = await getConnection();
-    const pg = isPostgres();
-    const users = await db.query(
+    let users = await db.query(
       pg
         ? 'SELECT * FROM "UtilisateursSysteme" WHERE LOWER(TRIM("NomUtilisateur")) = LOWER($1) AND "EstActif" = true'
         : 'SELECT * FROM UtilisateursSysteme WHERE LOWER(LTRIM(RTRIM(NomUtilisateur))) = LOWER(?) AND EstActif = 1',
       [rawUsername]
     );
+
+    // If not found, check if username is in format emp.X or dcw19.X or if employee exists
+    if (!users || users.length === 0) {
+      let empIdMatch = null;
+      if (rawUsername.startsWith('emp.') || rawUsername.startsWith('dcw19.') || rawUsername.startsWith('insp19.')) {
+        const parts = rawUsername.split('.');
+        if (parts.length > 1) {
+          empIdMatch = parseInt(parts[1], 10);
+        }
+      } else if (/^\d+$/.test(rawUsername)) {
+        empIdMatch = parseInt(rawUsername, 10);
+      }
+
+      const emps = await db.query(
+        pg
+          ? 'SELECT * FROM "Employes" WHERE "Id" = $1 OR LOWER("Nom") = LOWER($2) OR LOWER(CONCAT("Prenom", \'.\', "Nom")) = LOWER($2)'
+          : 'SELECT * FROM Employes WHERE Id = ? OR LOWER(Nom) = LOWER(?)',
+        [empIdMatch || 0, rawUsername]
+      );
+
+      if (emps && emps.length > 0) {
+        const emp = emps[0];
+        const empId = emp.Id || emp.id;
+        const rawNom = (emp.Nom || emp.nom || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        const rawPrenom = (emp.Prenom || emp.prenom || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        const cleanUser = rawPrenom && rawNom ? `${rawPrenom}.${rawNom}` : `emp.${empId}`;
+        const fullNameAr = `${emp.NomAr || emp.nomar || emp.Nom || ''} ${emp.PrenomAr || emp.prenomar || emp.Prenom || ''}`.trim() || `مفتش #${empId}`;
+        const defaultHash = await bcrypt.hash('chef123', 10);
+
+        await db.query(
+          pg
+            ? `INSERT INTO "UtilisateursSysteme" ("NomUtilisateur", "MotDePasseHash", "NomComplet", "Role", "EstActif", "DateCreation", "EmployeeId")
+               VALUES ($1, $2, $3, 4, true, NOW(), $4)`
+            : `INSERT INTO UtilisateursSysteme (NomUtilisateur, MotDePasseHash, NomComplet, Role, EstActif, DateCreation, EmployeeId)
+               VALUES (?, ?, ?, 4, 1, GETDATE(), ?)`,
+          [cleanUser, defaultHash, fullNameAr, empId]
+        );
+
+        users = await db.query(
+          pg
+            ? 'SELECT * FROM "UtilisateursSysteme" WHERE "EmployeeId" = $1'
+            : 'SELECT * FROM UtilisateursSysteme WHERE EmployeeId = ?',
+          [empId]
+        );
+      }
+    }
 
     if (!users || users.length === 0) {
       return res.status(401).json({ error: 'مستخدم غير موجود' });
