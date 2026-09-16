@@ -23,7 +23,7 @@
 * **Director**: `directeur` / `directeur123` (Role 1)
 * **Heads of Service**: `chef_concurrence`, `chef_consommation` / `chef123` (Role 2)
 * **Bureau Chief**: `bureau_user` / `bureau123` (Role 3)
-* **Inspectors**: `kriba`, `agent` / `Agent@2024` (Role 4)
+* **Inspectors**: `kriba` / `Agent@2024` (Role 4)
 
 ---
 
