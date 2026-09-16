@@ -13,15 +13,23 @@ router.get('/', async (req, res) => {
     const { status, employeeId } = req.query;
 
     let query = pg_q(pg,
-      `SELECT ti.*,
-              e."NomAr", e."PrenomAr", e."Nom", e."Prenom", e."Service", e."Grade",
+      `SELECT ti."Id" as "Id", ti."EmployeeId" as "EmployeeId", ti."Type" as "Type",
+              ti."Subject" as "Subject", ti."IncidentDate" as "IncidentDate", ti."LateMinutes" as "LateMinutes",
+              ti."Details" as "Details", ti."Status" as "Status", ti."EmployeeReply" as "EmployeeReply",
+              ti."ReplyAt" as "ReplyAt", ti."DirectorDecision" as "DirectorDecision",
+              ti."DirectorNotes" as "DirectorNotes", ti."DeductionDays" as "DeductionDays",
+              ti."DecisionAt" as "DecisionAt", ti."ExecutedAt" as "ExecutedAt", ti."CreatedAt" as "CreatedAt",
+              e."NomAr" as "NomAr", e."PrenomAr" as "PrenomAr", e."Nom" as "Nom", e."Prenom" as "Prenom",
+              e."Service" as "Service", e."Grade" as "Grade",
               sender."NomComplet" as "SentByName",
               execUser."NomComplet" as "ExecutedByName"
        FROM "TrackerInquiries" ti
        JOIN "Employes" e ON ti."EmployeeId" = e."Id"
        LEFT JOIN "UtilisateursSysteme" sender ON ti."SentBy" = sender."Id"
        LEFT JOIN "UtilisateursSysteme" execUser ON ti."ExecutedBy" = execUser."Id"`,
-      `SELECT ti.*,
+      `SELECT ti.Id, ti.EmployeeId, ti.Type, ti.Subject, ti.IncidentDate, ti.LateMinutes,
+              ti.Details, ti.Status, ti.EmployeeReply, ti.ReplyAt, ti.DirectorDecision,
+              ti.DirectorNotes, ti.DeductionDays, ti.DecisionAt, ti.ExecutedAt, ti.CreatedAt,
               e.NomAr, e.PrenomAr, e.Nom, e.Prenom, e.Service, e.Grade,
               sender.NomComplet as SentByName,
               execUser.NomComplet as ExecutedByName
