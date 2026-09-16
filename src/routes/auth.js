@@ -353,12 +353,12 @@ router.put('/users/:id', async (req, res) => {
     const updateQuery = pg
       ? `UPDATE "UtilisateursSysteme"
          SET "NomComplet" = $1, "Role" = $2, "EstActif" = $3, "EmployeeId" = $4
-         WHERE "Id" = $5`
+         WHERE "Id" = $5 OR "EmployeeId" = $5`
       : `UPDATE UtilisateursSysteme
          SET NomComplet = ?, Role = ?, EstActif = ?, EmployeeId = ?
-         WHERE Id = ?`;
+         WHERE Id = ? OR EmployeeId = ?`;
 
-    await db.query(updateQuery, [fullName, dbRole, activeVal, employeeId || null, userId]);
+    await db.query(updateQuery, pg ? [fullName, dbRole, activeVal, employeeId || null, userId] : [fullName, dbRole, activeVal, employeeId || null, userId, userId]);
 
     res.json({ success: true, message: 'تم تحديث بيانات المستخدم بنجاح ✅' });
   } catch (err) {
@@ -381,10 +381,34 @@ router.post('/users/:id/reset-password', async (req, res) => {
     const hash = await bcrypt.hash(newPassword.trim(), 10);
 
     const updateQuery = pg
-      ? `UPDATE "UtilisateursSysteme" SET "MotDePasseHash" = $1 WHERE "Id" = $2`
-      : `UPDATE UtilisateursSysteme SET MotDePasseHash = ? WHERE Id = ?`;
+      ? `UPDATE "UtilisateursSysteme" SET "MotDePasseHash" = $1 WHERE "Id" = $2 OR "EmployeeId" = $2`
+      : `UPDATE UtilisateursSysteme SET MotDePasseHash = ? WHERE Id = ? OR EmployeeId = ?`;
 
-    await db.query(updateQuery, [hash, userId]);
+    await db.query(updateQuery, pg ? [hash, userId] : [hash, userId, userId]);
+
+    // If user record wasn't present, check Employes and create it
+    const check = await db.query(
+      pg
+        ? `SELECT "Id" FROM "UtilisateursSysteme" WHERE "Id" = $1 OR "EmployeeId" = $1`
+        : `SELECT Id FROM UtilisateursSysteme WHERE Id = ? OR EmployeeId = ?`,
+      pg ? [userId] : [userId, userId]
+    );
+
+    if (!check || check.length === 0) {
+      const emps = await db.query(
+        pg ? `SELECT * FROM "Employes" WHERE "Id" = $1` : `SELECT * FROM Employes WHERE Id = ?`,
+        [userId]
+      );
+      if (emps && emps.length > 0) {
+        const emp = emps[0];
+        await db.query(
+          pg
+            ? `INSERT INTO "UtilisateursSysteme" ("NomUtilisateur", "MotDePasseHash", "NomComplet", "Role", "EstActif", "EmployeeId") VALUES ($1, $2, $3, 4, true, $4)`
+            : `INSERT INTO UtilisateursSysteme (NomUtilisateur, MotDePasseHash, NomComplet, Role, EstActif, EmployeeId) VALUES (?, ?, ?, 4, 1, ?)`,
+          [`emp.${emp.Id || emp.id}`, hash, `${emp.NomAr || emp.Nom} ${emp.PrenomAr || emp.Prenom}`.trim(), emp.Id || emp.id]
+        );
+      }
+    }
 
     res.json({ success: true, message: 'تمت إعادة تعيين كلمة المرور بنجاح ✅' });
   } catch (err) {
