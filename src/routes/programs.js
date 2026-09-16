@@ -11,8 +11,8 @@ router.get('/', async (req, res) => {
     const { service, type } = req.query;
 
     let query = pg
-      ? `SELECT * FROM "TrackerPrograms"`
-      : 'SELECT * FROM TrackerPrograms';
+      ? `SELECT "Id", "Title", "Description", "Type", "WeekDate", "MonthYear", "TargetArea", "TargetType", "FocusPoints", "CreatedBy", "ServiceName", "CreatedAt" FROM "TrackerPrograms"`
+      : 'SELECT Id, Title, Description, Type, WeekDate, MonthYear, TargetArea, TargetType, FocusPoints, CreatedBy, ServiceName, CreatedAt FROM TrackerPrograms';
     
     const conditions = [];
     const params = [];
