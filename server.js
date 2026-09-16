@@ -394,8 +394,8 @@ async function seedUsers() {
   try {
     await db.query(
       pg
-        ? 'DELETE FROM "UtilisateursSysteme" WHERE "NomUtilisateur" IN (\'agent\', \'inspecteur\')'
-        : 'DELETE FROM UtilisateursSysteme WHERE NomUtilisateur IN (\'agent\', \'inspecteur\')'
+        ? 'DELETE FROM "UtilisateursSysteme" WHERE "NomUtilisateur" IN (\'agent\', \'inspecteur\', \'kriba\')'
+        : 'DELETE FROM UtilisateursSysteme WHERE NomUtilisateur IN (\'agent\', \'inspecteur\', \'kriba\')'
     );
   } catch (err) {
     console.log('Cleanup warning:', err.message);
@@ -409,7 +409,6 @@ async function seedUsers() {
     { username: 'chef_administration', password: 'chef123', name: 'رئيس مصلحة الإدارة والوسائل', dbRole: 2 },
     { username: 'bureau_user', password: 'bureau123', name: 'رئيس مكتب المستخدمين', dbRole: 3 },
     { username: 'chef_bureau', password: 'Bureau@2024', name: 'رئيس مكتب المستخدمين', dbRole: 3 },
-    { username: 'kriba', password: 'Agent@2024', name: 'كريبع كمال — مفتش رئيسي', dbRole: 4, employeeId: 1 },
   ];
 
   for (const u of users) {
