@@ -3,6 +3,7 @@ process.env.TZ = 'Africa/Algiers';
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const { getConnection, isPostgres } = require('./src/config/database');
 const { getTodayAlgeria, getNowAlgeriaIso } = require('./src/utils/dateUtils');
 
@@ -21,6 +22,7 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 
 const path = require('path');
+const fs = require('fs');
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -38,6 +40,100 @@ app.use(express.static(path.join(__dirname, 'public'), {
 app.get('/', (req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Direct change-password endpoint fallback
+app.post(['/api/auth/change-password', '/api/change-password'], async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    let decoded = {};
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split(' ')[1];
+      try {
+        decoded = jwt.verify(token, process.env.JWT_SECRET || 'drh-setif-secret-2024');
+      } catch (_) {}
+    }
+
+    const currentPassword = (req.body.currentPassword || '').trim();
+    const newPassword = (req.body.newPassword || '').trim();
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'يرجى إدخال كلمة المرور الحالية والجديدة' });
+    }
+
+    if (newPassword.length < 4) {
+      return res.status(400).json({ error: 'يجب ألا تقل كلمة المرور الجديدة عن 4 أحرف أو أرقام' });
+    }
+
+    const db = await getConnection();
+    const pg = isPostgres();
+    const users = await db.query(
+      pg
+        ? 'SELECT * FROM "UtilisateursSysteme" WHERE ("Id" = $1 OR LOWER(TRIM("NomUtilisateur")) = LOWER(TRIM($2))) AND "EstActif" = true'
+        : 'SELECT * FROM UtilisateursSysteme WHERE (Id = ? OR LOWER(LTRIM(RTRIM(NomUtilisateur))) = LOWER(LTRIM(RTRIM(?)))) AND EstActif = 1',
+      [decoded.id || 0, decoded.username || '']
+    );
+
+    if (!users || users.length === 0) {
+      const emps = await db.query(
+        pg
+          ? 'SELECT * FROM "Employes" WHERE "Id" = $1 OR LOWER("Nom") = LOWER($2)'
+          : 'SELECT * FROM Employes WHERE Id = ? OR LOWER(Nom) = LOWER(?)',
+        [decoded.employeeId || decoded.id || 0, decoded.username || '']
+      );
+      if (emps && emps.length > 0) {
+        const emp = emps[0];
+        const newHash = await bcrypt.hash(newPassword, 10);
+        await db.query(
+          pg
+            ? 'INSERT INTO "UtilisateursSysteme" ("NomUtilisateur", "MotDePasseHash", "NomComplet", "Role", "EstActif", "EmployeeId") VALUES ($1, $2, $3, 4, true, $4)'
+            : 'INSERT INTO UtilisateursSysteme (NomUtilisateur, MotDePasseHash, NomComplet, Role, EstActif, EmployeeId) VALUES (?, ?, ?, 4, 1, ?)',
+          [decoded.username || `emp.${emp.Id || emp.id}`, newHash, `${emp.NomAr || emp.Nom} ${emp.PrenomAr || emp.Prenom}`.trim(), emp.Id || emp.id]
+        );
+        return res.json({ success: true, message: 'تم تغيير كلمة المرور بنجاح ✅' });
+      }
+      return res.status(404).json({ error: 'المستخدم غير موجود' });
+    }
+
+    const user = users[0];
+    const existingHash = user.MotDePasseHash || user.motdepassehash || user.MotDePasse || user.motdepasse || '';
+    const userId = user.Id !== undefined ? user.Id : (user.id !== undefined ? user.id : decoded.id);
+
+    let valid = false;
+    try {
+      valid = await bcrypt.compare(currentPassword, existingHash);
+    } catch {
+      valid = false;
+    }
+
+    if (!valid && (existingHash === currentPassword || existingHash === '' || existingHash === 'chef123' || existingHash === 'admin123' || existingHash === 'directeur123' || existingHash === 'bureau123')) {
+      valid = true;
+    }
+
+    if (!valid) {
+      return res.status(400).json({ error: 'كلمة المرور الحالية غير صحيحة' });
+    }
+
+    if (currentPassword === newPassword) {
+      return res.status(400).json({ error: 'كلمة المرور الجديدة يجب أن تكون مختلفة عن كلمة المرور الحالية' });
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+    await db.query(
+      pg
+        ? 'UPDATE "UtilisateursSysteme" SET "MotDePasseHash" = $1 WHERE "Id" = $2'
+        : 'UPDATE UtilisateursSysteme SET MotDePasseHash = ? WHERE Id = ?',
+      [newHash, userId]
+    );
+
+    res.json({
+      success: true,
+      message: 'تم تغيير كلمة المرور بنجاح ✅',
+    });
+  } catch (err) {
+    console.error('Change password direct error:', err.message);
+    res.status(500).json({ error: 'خطأ في الخادم أثناء تغيير كلمة المرور' });
+  }
 });
 
 app.use('/api/auth', authRoutes);
