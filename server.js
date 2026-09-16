@@ -392,12 +392,13 @@ async function seedUsers() {
   const users = [
     { username: 'tracker_admin', password: 'admin123', name: 'مدير النظام', dbRole: 5 },
     { username: 'directeur', password: 'directeur123', name: 'المدير الولائي', dbRole: 1 },
-    { username: 'chef_concurrence', password: 'chef123', name: 'رئيس مصلحة المنافسة', dbRole: 2 },
-    { username: 'chef_consommation', password: 'chef123', name: 'رئيس مصلحة حماية المستهلك', dbRole: 2 },
+    { username: 'chef_concurrence', password: 'chef123', name: 'رئيس مصلحة المنافسة والتحقيقات', dbRole: 2 },
+    { username: 'chef_consommation', password: 'chef123', name: 'رئيس مصلحة حماية المستهلك وقمع الغش', dbRole: 2 },
+    { username: 'chef_administration', password: 'chef123', name: 'رئيس مصلحة الإدارة والوسائل', dbRole: 2 },
     { username: 'bureau_user', password: 'bureau123', name: 'رئيس مكتب المستخدمين', dbRole: 3 },
     { username: 'chef_bureau', password: 'Bureau@2024', name: 'رئيس مكتب المستخدمين', dbRole: 3 },
     { username: 'agent', password: 'agent123', name: 'مفتش رئيسي', dbRole: 4, employeeId: 1 },
-    { username: 'kriba', password: 'kriba123', name: 'كريبع فؤاد — مفتش رئيسي', dbRole: 4, employeeId: 1 },
+    { username: 'kriba', password: 'Agent@2024', name: 'كريبع كمال — مفتش رئيسي', dbRole: 4, employeeId: 1 },
     { username: 'inspecteur', password: 'agent123', name: 'مفتش ميداني', dbRole: 4, employeeId: 1 },
   ];
 
