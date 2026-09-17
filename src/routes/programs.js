@@ -99,15 +99,23 @@ router.delete('/:id', async (req, res) => {
     const db = await getConnection();
     const pg = isPostgres();
 
-    await db.query(
-      pg ? 'DELETE FROM "TrackerPrograms" WHERE "Id" = $1' : 'DELETE FROM TrackerPrograms WHERE Id = ?',
-      [id]
-    );
+    const numericId = parseInt(id, 10);
+    if (!isNaN(numericId) && numericId > 0) {
+      await db.query(
+        pg ? 'DELETE FROM "TrackerPrograms" WHERE "Id" = $1' : 'DELETE FROM TrackerPrograms WHERE Id = ?',
+        [numericId]
+      );
+    } else {
+      await db.query(
+        pg ? 'DELETE FROM "TrackerPrograms" WHERE "Title" = $1' : 'DELETE FROM TrackerPrograms WHERE Title = ?',
+        [decodeURIComponent(id)]
+      );
+    }
 
-    res.json({ success: true, message: 'تم حذف البرنامج / أمر المهمة بنجاح ✅' });
+    res.json({ success: true, message: 'تم إلغاء أمر المهمة بنجاح ✅' });
   } catch (err) {
-    console.error('Delete program error:', err.message);
-    res.status(500).json({ error: 'خطأ في حذف أمر المهمة' });
+    console.error('Cancel program error:', err.message);
+    res.status(500).json({ error: 'خطأ في إلغاء أمر المهمة: ' + err.message });
   }
 });
 
