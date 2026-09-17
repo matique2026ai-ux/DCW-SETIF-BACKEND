@@ -1,28 +1,15 @@
 <!DOCTYPE html>
-<html>
+<html lang="ar" dir="rtl">
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
   <base href="/">
-
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="description" content="منصة الرقابة والتفتيش الميداني — مديرية التجارة الداخلية وضبط السوق الوطنية لولاية سطيف">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="مديرية التجارة سطيف">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
@@ -34,14 +21,104 @@
   <link rel="manifest" href="manifest.json">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,600&family=Outfit:wght@300;400;500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
+
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-font-smoothing: antialiased;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #1A0A1F;
+      background: radial-gradient(circle at top right, #2D1035 0%, #1A0A1F 60%, #0D0310 100%);
+      font-family: 'Tajawal', -apple-system, BlinkMacSystemFont, sans-serif;
+      color: #ffffff;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      overflow: hidden;
+      user-select: none;
+    }
+    #loading-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 24px;
+      z-index: 10;
+    }
+    .logo-container {
+      position: relative;
+      width: 96px;
+      height: 96px;
+      margin-bottom: 24px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #FBF1C9 0%, #D4AF37 55%, #8B6508 100%);
+      box-shadow: 0 0 35px rgba(212, 175, 55, 0.45), 0 8px 24px rgba(0, 0, 0, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: pulseGlow 3s ease-in-out infinite;
+    }
+    .logo-inner {
+      width: 82px;
+      height: 82px;
+      border-radius: 50%;
+      background: #1A0A1F;
+      border: 1.5px solid rgba(212, 175, 55, 0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #D4AF37;
+      font-size: 32px;
+    }
+    @keyframes pulseGlow {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 30px rgba(212, 175, 55, 0.35); }
+      50% { transform: scale(1.03); box-shadow: 0 0 45px rgba(212, 175, 55, 0.6); }
+    }
+    .spinner {
+      width: 44px;
+      height: 44px;
+      border: 3px solid rgba(212, 175, 55, 0.15);
+      border-top-color: #D4AF37;
+      border-radius: 50%;
+      animation: spin 0.85s linear infinite;
+      margin-bottom: 18px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .loading-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 6px;
+      letter-spacing: 0.2px;
+    }
+    .loading-subtitle {
+      font-size: 13px;
+      color: #D4AF37;
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+    .loading-status {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.5);
+      margin-top: 8px;
+    }
+  </style>
+
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        for(let registration of registrations) {
+        for (let registration of registrations) {
           registration.unregister();
         }
       });
@@ -54,6 +131,16 @@
   </script>
 </head>
 <body>
-  <script src="flutter_bootstrap.js?v=3.1.0" async></script>
+  <div id="loading-container">
+    <div class="logo-container">
+      <div class="logo-inner">🏛️</div>
+    </div>
+    <div class="spinner"></div>
+    <div class="loading-title">منصة الرقابة والتفتيش الميداني</div>
+    <div class="loading-subtitle">مديرية التجارة الداخلية وضبط السوق — ولاية سطيف</div>
+    <div class="loading-status">جاري تهيئة المنظومة الرقمية...</div>
+  </div>
+
+  <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
