@@ -318,6 +318,48 @@ router.get('/map-data', async (req, res) => {
 });
 
 
+// Official DCW Setif Headquarters & Regional Inspectorates
+const OFFICIAL_HQS = [
+  { name: 'المقر الرئيسي لمديرية سطيف (حي المعبودة)', lat: 36.1912, lng: 5.4137, radiusMeters: 800 },
+  { name: 'المفتشية الحدودية بمطار 8 ماي 1945 (عين أرنات)', lat: 36.1780, lng: 5.3250, radiusMeters: 1000 },
+  { name: 'المفتشية الإقليمية للتجارة بالعلمة', lat: 36.1528, lng: 5.6908, radiusMeters: 800 },
+  { name: 'المفتشية الإقليمية للتجارة بعين ولمان', lat: 35.9189, lng: 5.2975, radiusMeters: 800 },
+  { name: 'المفتشية الإقليمية للتجارة ببوقاعة', lat: 36.3325, lng: 5.0886, radiusMeters: 800 },
+  { name: 'الملحقة التجارية بعين آزال', lat: 35.8450, lng: 5.4622, radiusMeters: 800 },
+  { name: 'الملحقة التجارية بعين الكبيرة', lat: 36.3650, lng: 5.4980, radiusMeters: 800 },
+  { name: 'الملحقة التجارية بعين أرنات', lat: 36.1850, lng: 5.3120, radiusMeters: 800 },
+];
+
+function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371e3;
+  const phi1 = (lat1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
+  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+}
+
+function findNearestHQ(lat, lng) {
+  if (lat === null || lat === undefined || lng === null || lng === undefined) return null;
+  let nearest = null;
+  let minDistance = Infinity;
+
+  for (const hq of OFFICIAL_HQS) {
+    const dist = calculateDistanceMeters(lat, lng, hq.lat, hq.lng);
+    if (dist < minDistance) {
+      minDistance = dist;
+      nearest = { ...hq, distanceMeters: Math.round(dist) };
+    }
+  }
+  return nearest;
+}
+
 router.post('/checkin', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
@@ -343,7 +385,6 @@ router.post('/checkin', async (req, res) => {
 
     const finalLat = latitude !== undefined ? latitude : Latitude;
     const finalLng = longitude !== undefined ? longitude : Longitude;
-    const finalLoc = location || locationName || LocationName || null;
     const finalPhoto = photo || Photo || null;
     const finalNotes = notes || Notes || null;
 
@@ -351,6 +392,7 @@ router.post('/checkin', async (req, res) => {
     const pg = isPostgres();
     const today = getTodayAlgeria();
 
+    // Check existing attendance for today
     const existing = await db.query(
       pg
         ? `SELECT "Id" FROM "TrackerAttendance" WHERE "EmployeeId" = $1 AND "Date" = $2 AND "IsCheckedOut" = false`
@@ -362,11 +404,29 @@ router.post('/checkin', async (req, res) => {
       return res.status(200).json({ success: true, message: 'الموظف مسجل حضوره بالفعل اليوم', alreadyCheckedIn: true });
     }
 
+    // Geofencing verification
+    let resolvedLocation = location || locationName || LocationName || 'مقر المديرية الولائية';
+    let isGeofenceValid = true;
+
+    if (finalLat && finalLng) {
+      const nearestHQ = findNearestHQ(finalLat, finalLng);
+      if (nearestHQ) {
+        if (nearestHQ.distanceMeters <= nearestHQ.radiusMeters) {
+          resolvedLocation = nearestHQ.name;
+          isGeofenceValid = true;
+        } else {
+          // Check if employee has a field mission
+          resolvedLocation = `${nearestHQ.name} (نقطة انطلاق ميدانية - يبعد ${nearestHQ.distanceMeters}م)`;
+          isGeofenceValid = false;
+        }
+      }
+    }
+
     await db.query(
       pg
         ? `INSERT INTO "TrackerAttendance" ("EmployeeId","Date","CheckInTime","CheckInLocation","CheckInLatitude","CheckInLongitude","CheckInPhoto","Notes","IsCheckedOut") VALUES ($1,$2,NOW(),$3,$4,$5,$6,$7,false)`
         : `INSERT INTO TrackerAttendance (EmployeeId,Date,CheckInTime,CheckInLocation,CheckInLatitude,CheckInLongitude,CheckInPhoto,Notes,IsCheckedOut) VALUES (?,?,GETDATE(),?,?,?,?,?,0)`,
-      [finalEmpId, today, finalLoc, finalLat || null, finalLng || null, finalPhoto, finalNotes]
+      [finalEmpId, today, resolvedLocation, finalLat || null, finalLng || null, finalPhoto, finalNotes]
     );
 
     const result = await db.query(
@@ -376,7 +436,13 @@ router.post('/checkin', async (req, res) => {
       [finalEmpId, today]
     );
 
-    res.status(201).json(result[0] || { success: true, message: 'تم تسجيل الحضور بنجاح' });
+    res.status(201).json({
+      ...(result[0] || {}),
+      success: true,
+      message: 'تم تسجيل الحضور والبصمة الجغرافية بنجاح ✅',
+      isGeofenceValid: isGeofenceValid,
+      resolvedLocation: resolvedLocation,
+    });
   } catch (err) {
     console.error('Checkin error:', err.message);
     res.status(500).json({ error: 'خطأ في تسجيل الحضور: ' + err.message });
@@ -385,7 +451,7 @@ router.post('/checkin', async (req, res) => {
 
 router.post('/checkout', async (req, res) => {
   try {
-    const { employeeId, latitude, longitude, location, notes } = req.body;
+    const { employeeId, latitude, longitude, location, notes, shortShiftReason } = req.body;
     if (!employeeId) return res.status(400).json({ error: 'رقم الموظف مطلوب' });
 
     const db = await getConnection();
@@ -394,20 +460,41 @@ router.post('/checkout', async (req, res) => {
 
     const existing = await db.query(
       pg
-        ? `SELECT "Id" FROM "TrackerAttendance" WHERE "EmployeeId" = $1 AND "Date" = $2 AND "IsCheckedOut" = false`
-        : 'SELECT Id FROM TrackerAttendance WHERE EmployeeId = ? AND Date = ? AND IsCheckedOut = 0',
+        ? `SELECT "Id", "CheckInTime" FROM "TrackerAttendance" WHERE "EmployeeId" = $1 AND "Date" = $2 AND "IsCheckedOut" = false`
+        : 'SELECT Id, CheckInTime FROM TrackerAttendance WHERE EmployeeId = ? AND Date = ? AND IsCheckedOut = 0',
       [employeeId, today]
     );
 
     if (!existing || existing.length === 0) {
-      return res.status(400).json({ error: 'لم يسجل الحضور بعد اليوم' });
+      return res.status(400).json({ error: 'لم يتم تسجيل الحضور اليوم بعد' });
+    }
+
+    const checkInRecord = existing[0];
+    const checkInTime = new Date(checkInRecord.CheckInTime || checkInRecord.checkintime);
+    const now = new Date();
+    const elapsedMinutes = Math.round((now - checkInTime) / (1000 * 60));
+
+    // Resolve checkout location
+    let resolvedCheckoutLocation = location || 'موقع الانصراف الميداني';
+    if (latitude && longitude) {
+      const nearestHQ = findNearestHQ(latitude, longitude);
+      if (nearestHQ && nearestHQ.distanceMeters <= nearestHQ.radiusMeters) {
+        resolvedCheckoutLocation = `نهاية المهام في: ${nearestHQ.name}`;
+      } else {
+        resolvedCheckoutLocation = `انصراف ميداني من موقع التفتيش (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
+      }
+    }
+
+    let finalNotes = notes || null;
+    if (elapsedMinutes < 30 && shortShiftReason) {
+      finalNotes = finalNotes ? `${finalNotes} | [انصراف مبكر استثنائي: ${shortShiftReason}]` : `[انصراف مبكر استثنائي: ${shortShiftReason}]`;
     }
 
     await db.query(
       pg
         ? `UPDATE "TrackerAttendance" SET "CheckOutTime"=NOW(),"CheckOutLocation"=$1,"CheckOutLatitude"=$2,"CheckOutLongitude"=$3,"Notes"=COALESCE($4,"Notes"),"IsCheckedOut"=true WHERE "EmployeeId"=$5 AND "Date"=$6 AND "IsCheckedOut"=false`
         : `UPDATE TrackerAttendance SET CheckOutTime=GETDATE(),CheckOutLocation=?,CheckOutLatitude=?,CheckOutLongitude=?,Notes=COALESCE(?,Notes),IsCheckedOut=1 WHERE EmployeeId=? AND Date=? AND IsCheckedOut=0`,
-      [location || null, latitude || null, longitude || null, notes || null, employeeId, today]
+      [resolvedCheckoutLocation, latitude || null, longitude || null, finalNotes, employeeId, today]
     );
 
     const result = await db.query(
@@ -417,7 +504,12 @@ router.post('/checkout', async (req, res) => {
       [employeeId, today]
     );
 
-    res.json(result[0]);
+    res.json({
+      ...(result[0] || {}),
+      success: true,
+      message: 'تم تسجيل الانصراف وحجب التتبع لحماية الخصوصية بنجاح ✅',
+      elapsedMinutes: elapsedMinutes,
+    });
   } catch (err) {
     console.error('Checkout error:', err.message);
     res.status(500).json({ error: 'خطأ في تسجيل الانصراف' });
