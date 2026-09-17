@@ -167,6 +167,43 @@ app.post('/api/attendance/cancel-checkout', async (req, res) => {
     res.status(500).json({ error: 'خطأ في استئناف الدوام' });
   }
 });
+
+// Direct endpoints for program cancellation
+app.delete('/api/programs/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const db = await getConnection();
+    const pg = isPostgres();
+    const numId = parseInt(id, 10);
+    if (!isNaN(numId) && numId > 0) {
+      await db.query(pg ? 'DELETE FROM "TrackerPrograms" WHERE "Id" = $1' : 'DELETE FROM TrackerPrograms WHERE Id = ?', [numId]);
+    } else {
+      await db.query(pg ? 'DELETE FROM "TrackerPrograms" WHERE "Title" = $1' : 'DELETE FROM TrackerPrograms WHERE Title = ?', [decodeURIComponent(id)]);
+    }
+    res.json({ success: true, message: 'تم إلغاء أمر المهمة بنجاح ✅' });
+  } catch (err) {
+    console.error('Direct cancel program error:', err.message);
+    res.status(500).json({ error: 'خطأ في إلغاء أمر المهمة: ' + err.message });
+  }
+});
+
+app.post('/api/programs/cancel', async (req, res) => {
+  try {
+    const { id, title } = req.body;
+    const db = await getConnection();
+    const pg = isPostgres();
+    const numId = parseInt(id, 10);
+    if (!isNaN(numId) && numId > 0) {
+      await db.query(pg ? 'DELETE FROM "TrackerPrograms" WHERE "Id" = $1' : 'DELETE FROM TrackerPrograms WHERE Id = ?', [numId]);
+    } else if (title) {
+      await db.query(pg ? 'DELETE FROM "TrackerPrograms" WHERE "Title" = $1' : 'DELETE FROM TrackerPrograms WHERE Title = ?', [title]);
+    }
+    res.json({ success: true, message: 'تم إلغاء أمر المهمة بنجاح ✅' });
+  } catch (err) {
+    console.error('Direct cancel program POST error:', err.message);
+    res.status(500).json({ error: 'خطأ في إلغاء أمر المهمة: ' + err.message });
+  }
+});
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/visits', visitRoutes);
 app.use('/api/deductions', deductionRoutes);
