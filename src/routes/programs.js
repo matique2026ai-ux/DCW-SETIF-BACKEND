@@ -93,4 +93,22 @@ router.post('/', async (req, res) => {
   }
 });
 
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const db = await getConnection();
+    const pg = isPostgres();
+
+    await db.query(
+      pg ? 'DELETE FROM "TrackerPrograms" WHERE "Id" = $1' : 'DELETE FROM TrackerPrograms WHERE Id = ?',
+      [id]
+    );
+
+    res.json({ success: true, message: 'تم حذف البرنامج / أمر المهمة بنجاح ✅' });
+  } catch (err) {
+    console.error('Delete program error:', err.message);
+    res.status(500).json({ error: 'خطأ في حذف أمر المهمة' });
+  }
+});
+
 module.exports = router;
