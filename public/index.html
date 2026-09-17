@@ -35,24 +35,28 @@
       margin: 0;
       padding: 0;
       background-color: #1A0A1F;
-      background: radial-gradient(circle at top right, #2D1035 0%, #1A0A1F 60%, #0D0310 100%);
       font-family: 'Tajawal', -apple-system, BlinkMacSystemFont, sans-serif;
       color: #ffffff;
-      display: flex;
-      justify-content: center;
-      align-items: center;
       min-height: 100vh;
       overflow: hidden;
       user-select: none;
     }
     #loading-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: radial-gradient(circle at top right, #2D1035 0%, #1A0A1F 60%, #0D0310 100%);
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       text-align: center;
       padding: 24px;
-      z-index: 10;
+      z-index: 999999;
+      pointer-events: all;
+      transition: opacity 0.4s ease, visibility 0.4s ease;
     }
     .logo-container {
       position: relative;
@@ -140,6 +144,51 @@
     <div class="loading-subtitle">مديرية التجارة الداخلية وضبط السوق — ولاية سطيف</div>
     <div class="loading-status">جاري تهيئة المنظومة الرقمية...</div>
   </div>
+
+  <script>
+    function removeLoadingScreen() {
+      var loader = document.getElementById('loading-container');
+      if (loader && loader.style.opacity !== '0') {
+        loader.style.opacity = '0';
+        loader.style.pointerEvents = 'none';
+        setTimeout(function() {
+          if (loader && loader.parentNode) {
+            loader.parentNode.removeChild(loader);
+          }
+        }, 450);
+      }
+    }
+
+    // 1. Flutter first frame event
+    window.addEventListener('flutter-first-frame', removeLoadingScreen);
+
+    // 2. Watch for Flutter DOM view injection
+    var domObserver = new MutationObserver(function(mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        var added = mutations[i].addedNodes;
+        for (var j = 0; j < added.length; j++) {
+          var node = added[j];
+          if (node.nodeType === 1 && (node.tagName === 'FLUTTER-VIEW' || node.tagName === 'FLT-GLASS-PANE' || (node.classList && node.classList.contains('flutter-view')))) {
+            setTimeout(removeLoadingScreen, 200);
+            domObserver.disconnect();
+            return;
+          }
+        }
+      }
+    });
+    if (document.body) {
+      domObserver.observe(document.body, { childList: true, subtree: true });
+    }
+
+    // 3. Safety fallback timer
+    window.addEventListener('load', function() {
+      setTimeout(function() {
+        if (document.querySelector('flutter-view, flt-glass-pane, [flt-renderer]')) {
+          removeLoadingScreen();
+        }
+      }, 2000);
+    });
+  </script>
 
   <script src="flutter_bootstrap.js" async></script>
 </body>
