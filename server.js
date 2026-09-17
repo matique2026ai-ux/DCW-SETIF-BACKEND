@@ -565,11 +565,59 @@ async function seedEmployees() {
   console.log('✅ 5 test employees seeded');
 }
 
+async function seedPrograms() {
+  if (!isPostgres()) return;
+  const db = await getConnection();
+  
+  // Update any existing programs with generic service to proper services so inspectors are linked
+  try {
+    await db.query(`
+      UPDATE "TrackerPrograms" 
+      SET "ServiceName" = 'مصلحة حماية المستهلك وقمع الغش' 
+      WHERE "ServiceName" = 'مصلحة الرقابة' OR "ServiceName" IS NULL
+    `);
+
+    const existing = await db.query('SELECT COUNT(*) as count FROM "TrackerPrograms"');
+    if (parseInt(existing[0]?.count || '0', 10) < 2) {
+      const defaultPrograms = [
+        {
+          title: 'برنامج ولائي لقمع الغش ومراقبة الجودة والمواد الغذائية',
+          description: 'التفتيش الميداني للمطاعم، المخابز، ملبنات الحليب، ومحلات القصابة',
+          type: 'daily',
+          targetArea: 'ولاية سطيف (المقرات والمفتشيات الإقليمية)',
+          focusPoints: 'سلسلة التبريد، شروط النظافة، تواريخ الصلاحية',
+          serviceName: 'مصلحة حماية المستهلك وقمع الغش'
+        },
+        {
+          title: 'برنامج ولائي لمراقبة الممارسات التجارية والفوترة والأسعار المقننة',
+          description: 'مراقبة أسواق الجملة والتجزئة وتطبيق هوامش الربح ومحاربة المضاربة',
+          type: 'weekly',
+          targetArea: 'ولاية سطيف (العلمة، عين ولمان، سطيف وسط)',
+          focusPoints: 'الفواتير، هوامش الربح، التصريح بالمخازن',
+          serviceName: 'مصلحة المنافسة والتحقيقات الاقتصادية'
+        }
+      ];
+
+      for (const p of defaultPrograms) {
+        await db.query(
+          `INSERT INTO "TrackerPrograms" ("Title","Description","Type","WeekDate","TargetArea","FocusPoints","ServiceName","CreatedAt")
+           VALUES ($1,$2,$3,CURRENT_DATE,$4,$5,$6,NOW())`,
+          [p.title, p.description, p.type, p.targetArea, p.focusPoints, p.serviceName]
+        );
+      }
+      console.log('✅ Default inspection programs seeded');
+    }
+  } catch (e) {
+    console.log('seedPrograms notice:', e.message);
+  }
+}
+
 async function start() {
   try {
     await ensureTables();
     await seedUsers();
     await seedEmployees();
+    await seedPrograms();
     app.listen(PORT, () => {
       console.log(`🚀 DRH-SETIF-TRACKER API v3.0 running on http://localhost:${PORT}`);
     });
