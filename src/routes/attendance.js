@@ -182,6 +182,48 @@ router.get('/delays-summary', async (req, res) => {
   }
 });
 
+// Official DCW Setif Headquarters & Regional Inspectorates
+const OFFICIAL_HQS = [
+  { name: 'المقر الرئيسي لمديرية سطيف (حي المعبودة)', lat: 36.1912, lng: 5.4137, radiusMeters: 800 },
+  { name: 'المفتشية الحدودية بمطار 8 ماي 1945 (عين أرنات)', lat: 36.1780, lng: 5.3250, radiusMeters: 1000 },
+  { name: 'المفتشية الإقليمية للتجارة بالعلمة', lat: 36.1528, lng: 5.6908, radiusMeters: 800 },
+  { name: 'المفتشية الإقليمية للتجارة بعين ولمان', lat: 35.9189, lng: 5.2975, radiusMeters: 800 },
+  { name: 'المفتشية الإقليمية للتجارة ببوقاعة', lat: 36.3325, lng: 5.0886, radiusMeters: 800 },
+  { name: 'الملحقة التجارية بعين آزال', lat: 35.8450, lng: 5.4622, radiusMeters: 800 },
+  { name: 'الملحقة التجارية بعين الكبيرة', lat: 36.3650, lng: 5.4980, radiusMeters: 800 },
+  { name: 'الملحقة التجارية بعين أرنات', lat: 36.1850, lng: 5.3120, radiusMeters: 800 },
+];
+
+function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371e3;
+  const phi1 = (lat1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
+  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+}
+
+function findNearestHQ(lat, lng) {
+  if (lat === null || lat === undefined || lng === null || lng === undefined) return null;
+  let nearest = null;
+  let minDistance = Infinity;
+
+  for (const hq of OFFICIAL_HQS) {
+    const dist = calculateDistanceMeters(lat, lng, hq.lat, hq.lng);
+    if (dist < minDistance) {
+      minDistance = dist;
+      nearest = { ...hq, distanceMeters: Math.round(dist) };
+    }
+  }
+  return nearest;
+}
+
 router.get('/map-data', async (req, res) => {
   try {
     const db = await getConnection();
@@ -226,6 +268,13 @@ router.get('/map-data', async (req, res) => {
         ? `SELECT "Id","EmployeeId","CheckInTime","Latitude","Longitude","ShopName","ShopType","Photo","ViolationFound","Notes" FROM "TrackerVisits" WHERE "Date" = $1 ORDER BY "CheckInTime" ASC`
         : 'SELECT Id,EmployeeId,CheckInTime,Latitude,Longitude,ShopName,ShopType,Photo,ViolationFound,Notes FROM TrackerVisits WHERE Date = ? ORDER BY CheckInTime ASC',
       [today]
+    );
+
+    // Fetch active programs to link each inspector to their department/mission
+    const programs = await db.query(
+      pg
+        ? `SELECT "Id", "Title", "ServiceName", "TargetArea", "TargetType", "FocusPoints", "CreatedAt" FROM "TrackerPrograms" ORDER BY "CreatedAt" DESC`
+        : 'SELECT Id, Title, ServiceName, TargetArea, TargetType, FocusPoints, CreatedAt FROM TrackerPrograms ORDER BY CreatedAt DESC'
     );
 
     const attendanceMap = {};
@@ -277,11 +326,77 @@ router.get('/map-data', async (req, res) => {
       // Strict Privacy Rule: If the employee checked out and is NOT on night duty, do not stream live coordinates
       const allowLiveTracking = att && (!isCheckedOut || isNightDuty);
 
-      const nomAr = emp.NomAr || emp.nomar;
-      const prenomAr = emp.PrenomAr || emp.prenomar;
-      const nom = emp.Nom || emp.nom;
-      const prenom = emp.Prenom || emp.prenom;
-      const empName = nomAr ? `${nomAr} ${prenomAr || ''}`.trim() : `${nom || ''} ${prenom || ''}`.trim();
+      const nomAr = (emp.NomAr || emp.nomar || '').toString();
+      const prenomAr = (emp.PrenomAr || emp.prenomar || '').toString();
+      const nom = (emp.Nom || emp.nom || '').toString();
+      const prenom = (emp.Prenom || emp.prenom || '').toString();
+      const empName = nomAr ? `${nomAr} ${prenomAr}`.trim() : `${nom} ${prenom}`.trim();
+
+      // Find active program for this inspector
+      let activeProg = null;
+      for (const p of (programs || [])) {
+        const title = (p.Title || p.title || '').toString();
+        const fp = (p.FocusPoints || p.focuspoints || '').toString();
+        const pDept = (p.ServiceName || p.servicename || '').toString();
+        const empDept = (emp.Service || emp.service || '').toString();
+        const brigade = (emp.BrigadeName || emp.brigadename || '').toString();
+
+        if ((nomAr && title.includes(nomAr)) || (nom && title.toLowerCase().includes(nom.toLowerCase()))) {
+          activeProg = p;
+          break;
+        }
+        if (brigade && (title.includes(brigade) || fp.includes(brigade))) {
+          activeProg = p;
+          break;
+        }
+        if (!activeProg && pDept && empDept && (empDept.includes(pDept) || pDept.includes(empDept))) {
+          activeProg = p;
+        }
+      }
+
+      const activeProgramData = activeProg ? {
+        id: activeProg.Id || activeProg.id,
+        title: activeProg.Title || activeProg.title,
+        serviceName: activeProg.ServiceName || activeProg.servicename,
+        targetArea: activeProg.TargetArea || activeProg.targetarea,
+        targetType: activeProg.TargetType || activeProg.targettype,
+      } : null;
+
+      const currentLat = allowLiveTracking ? (lastVisit ? lastVisit.latitude : (att ? att.CheckInLatitude : null)) : null;
+      const currentLng = allowLiveTracking ? (lastVisit ? lastVisit.longitude : (att ? att.CheckInLongitude : null)) : null;
+
+      let locationType = 'unknown';
+      let hqName = null;
+      let distanceToHQ = null;
+
+      if (currentLat != null && currentLng != null) {
+        const nearest = findNearestHQ(currentLat, currentLng);
+        if (nearest) {
+          distanceToHQ = nearest.distanceMeters;
+          if (nearest.distanceMeters <= (nearest.radiusMeters || 800) && empVisits.length === 0) {
+            locationType = 'at_hq';
+            hqName = nearest.name;
+          } else {
+            locationType = 'in_field';
+            hqName = nearest.name;
+          }
+        } else {
+          locationType = 'in_field';
+        }
+      }
+
+      let trackingStatus = 'غير مسجل اليوم';
+      if (isCheckedOut) {
+        trackingStatus = isNightDuty ? 'مهمة تفتيش ليلية نشطة' : 'منصرف - أنهى الدوام';
+      } else if (att) {
+        if (locationType === 'at_hq') {
+          trackingStatus = `حاضر بالمقر (${hqName || 'المقر الرئيسي'})`;
+        } else {
+          trackingStatus = activeProgramData 
+              ? `في الميدان — ${activeProgramData.title}`
+              : (empVisits.length > 0 ? `نشط في الميدان (${empVisits.length} معاينات)` : 'في مهمة رقابية ميدانية');
+        }
+      }
 
       return {
         employeeId: empId,
@@ -294,13 +409,15 @@ router.get('/map-data', async (req, res) => {
         isNightDuty: isNightDuty,
         hasCheckedIn: !!att,
         isCheckedOut: isCheckedOut,
-        trackingStatus: isCheckedOut
-            ? (isNightDuty ? 'مهمة تفتيش ليلية نشطة' : 'منصرف - التتبع معطل للخصوصية')
-            : (att ? 'نشط في الخدمة الميدانية' : 'غير مسجل حضور'),
+        trackingStatus: trackingStatus,
+        locationType: locationType,
+        hqName: hqName,
+        distanceToHQ: distanceToHQ,
+        activeProgram: activeProgramData,
         checkInTime: att ? att.CheckInTime : null,
         checkOutTime: att ? att.CheckOutTime : null,
-        latitude: allowLiveTracking ? (lastVisit ? lastVisit.latitude : (att ? att.CheckInLatitude : null)) : null,
-        longitude: allowLiveTracking ? (lastVisit ? lastVisit.longitude : (att ? att.CheckInLongitude : null)) : null,
+        latitude: currentLat,
+        longitude: currentLng,
         checkInLatitude: allowLiveTracking && att ? att.CheckInLatitude : null,
         checkInLongitude: allowLiveTracking && att ? att.CheckInLongitude : null,
         checkInPhoto: att ? att.CheckInPhoto : null,
@@ -317,48 +434,6 @@ router.get('/map-data', async (req, res) => {
   }
 });
 
-
-// Official DCW Setif Headquarters & Regional Inspectorates
-const OFFICIAL_HQS = [
-  { name: 'المقر الرئيسي لمديرية سطيف (حي المعبودة)', lat: 36.1912, lng: 5.4137, radiusMeters: 800 },
-  { name: 'المفتشية الحدودية بمطار 8 ماي 1945 (عين أرنات)', lat: 36.1780, lng: 5.3250, radiusMeters: 1000 },
-  { name: 'المفتشية الإقليمية للتجارة بالعلمة', lat: 36.1528, lng: 5.6908, radiusMeters: 800 },
-  { name: 'المفتشية الإقليمية للتجارة بعين ولمان', lat: 35.9189, lng: 5.2975, radiusMeters: 800 },
-  { name: 'المفتشية الإقليمية للتجارة ببوقاعة', lat: 36.3325, lng: 5.0886, radiusMeters: 800 },
-  { name: 'الملحقة التجارية بعين آزال', lat: 35.8450, lng: 5.4622, radiusMeters: 800 },
-  { name: 'الملحقة التجارية بعين الكبيرة', lat: 36.3650, lng: 5.4980, radiusMeters: 800 },
-  { name: 'الملحقة التجارية بعين أرنات', lat: 36.1850, lng: 5.3120, radiusMeters: 800 },
-];
-
-function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
-  const R = 6371e3;
-  const phi1 = (lat1 * Math.PI) / 180;
-  const phi2 = (lat2 * Math.PI) / 180;
-  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
-  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
-
-  const a =
-    Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
-    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return R * c;
-}
-
-function findNearestHQ(lat, lng) {
-  if (lat === null || lat === undefined || lng === null || lng === undefined) return null;
-  let nearest = null;
-  let minDistance = Infinity;
-
-  for (const hq of OFFICIAL_HQS) {
-    const dist = calculateDistanceMeters(lat, lng, hq.lat, hq.lng);
-    if (dist < minDistance) {
-      minDistance = dist;
-      nearest = { ...hq, distanceMeters: Math.round(dist) };
-    }
-  }
-  return nearest;
-}
 
 router.post('/checkin', async (req, res) => {
   try {

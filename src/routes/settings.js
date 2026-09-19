@@ -49,6 +49,14 @@ router.post('/', async (req, res) => {
     const pg = isPostgres();
 
     if (pg) {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS "TrackerSettings" (
+          "Key" VARCHAR(100) PRIMARY KEY,
+          "Value" TEXT NOT NULL,
+          "Description" TEXT,
+          "UpdatedAt" TIMESTAMP DEFAULT NOW()
+        );
+      `);
       await db.query(
         `INSERT INTO "TrackerSettings" ("Key", "Value", "Description", "UpdatedAt")
          VALUES ($1, $2, $3, NOW())

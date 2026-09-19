@@ -212,7 +212,7 @@ app.use('/api/inquiries', inquiryRoutes);
 app.use('/api/settings', settingRoutes);
 
 // Reset / Clean test attendance for fresh live demonstration
-app.all('/api/clean-test-data', async (req, res) => {
+app.all(['/api/clean-test-data', '/clean-test-data', '/api/settings/clean-test-data'], async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();
