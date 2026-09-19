@@ -253,6 +253,8 @@ router.put('/:id/admin-status', verifyToken, async (req, res) => {
           assignedDepartment || null, assignedPosition || null, updatedBy
         ]
       );
+    }
+
     if (assignedDepartment) {
       if (pg) {
         await db.query(`UPDATE "Employes" SET "Service" = $1 WHERE "Id" = $2`, [assignedDepartment, employeeId]);
