@@ -9,7 +9,7 @@ function authMiddleware(req, res, next) {
 
   const token = header.split(' ')[1];
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'drh-setif-secret-2024');
     req.user = decoded;
     next();
   } catch (err) {
@@ -26,4 +26,4 @@ function roleGuard(...roles) {
   };
 }
 
-module.exports = { authMiddleware, roleGuard };
+module.exports = { authMiddleware, verifyToken: authMiddleware, roleGuard };

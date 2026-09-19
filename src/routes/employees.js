@@ -76,6 +76,103 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Create new Employee in the Administrative Registry (Bureau Chief / Admin action)
+router.post('/', verifyToken, async (req, res) => {
+  try {
+    const db = await getConnection();
+    const pg = isPostgres();
+    const {
+      numeroMatricule,
+      nomAr,
+      prenomAr,
+      nom,
+      prenom,
+      service,
+      grade,
+      fonctionExercee,
+      posteFinancier,
+      brigadeName,
+      isBrigadeLeader
+    } = req.body;
+
+    if (!nomAr && !prenomAr && !nom && !prenom) {
+      return res.status(400).json({ error: 'الاسم واللقب مطلوبان' });
+    }
+
+    const cleanNomAr = (nomAr || '').trim();
+    const cleanPrenomAr = (prenomAr || '').trim();
+    const cleanNom = (nom || cleanNomAr).trim();
+    const cleanPrenom = (prenom || cleanPrenomAr).trim();
+    const cleanMatricule = (numeroMatricule || `MAT-${Date.now().toString().slice(-6)}`).trim();
+    const cleanService = (service || 'مصلحة حماية المستهلك وقمع الغش').trim();
+    const cleanGrade = (grade || 'مفتش رئيسي').trim();
+    const cleanFonction = (fonctionExercee || 'مفتش ميداني').trim();
+
+    let newEmpId = null;
+
+    if (pg) {
+      const empRes = await db.query(
+        `INSERT INTO "Employes" 
+           ("NumeroMatricule", "Nom", "Prenom", "NomAr", "PrenomAr", "Grade", "Service", "FonctionExercee", "PosteFinancier", "EstActif")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
+         RETURNING "Id"`,
+        [cleanMatricule, cleanNom, cleanPrenom, cleanNomAr, cleanPrenomAr, cleanGrade, cleanService, cleanFonction, posteFinancier || null]
+      );
+      newEmpId = empRes[0]?.Id || empRes[0]?.id;
+    } else {
+      await db.query(
+        `INSERT INTO Employes 
+           (NumeroMatricule, Nom, Prenom, NomAr, PrenomAr, Grade, Service, FonctionExercee, PosteFinancier, EstActif)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        [cleanMatricule, cleanNom, cleanPrenom, cleanNomAr, cleanPrenomAr, cleanGrade, cleanService, cleanFonction, posteFinancier || null]
+      );
+      const lastRes = await db.query('SELECT TOP 1 Id FROM Employes ORDER BY Id DESC');
+      newEmpId = lastRes[0]?.Id || lastRes[0]?.id;
+    }
+
+    if (!newEmpId) {
+      return res.status(500).json({ error: 'فشل في حفظ بيانات الموظف' });
+    }
+
+    // Insert TrackerEmployeeAdmin
+    const updatedBy = req.user ? req.user.id : null;
+    if (pg) {
+      await db.query(
+        `INSERT INTO "TrackerEmployeeAdmin" 
+           ("EmployeeId", "AdministrativeStatus", "IsBrigadeLeader", "BrigadeName", "AssignedDepartment", "AssignedPosition", "UpdatedBy", "UpdatedAt")
+         VALUES ($1, 'active', $2, $3, $4, $5, $6, NOW())
+         ON CONFLICT ("EmployeeId") DO UPDATE SET
+           "IsBrigadeLeader" = EXCLUDED."IsBrigadeLeader",
+           "BrigadeName" = EXCLUDED."BrigadeName",
+           "AssignedDepartment" = EXCLUDED."AssignedDepartment",
+           "AssignedPosition" = EXCLUDED."AssignedPosition",
+           "UpdatedBy" = EXCLUDED."UpdatedBy",
+           "UpdatedAt" = NOW()`,
+        [newEmpId, isBrigadeLeader ? true : false, brigadeName || null, cleanService, cleanFonction, updatedBy]
+      );
+    } else {
+      await db.query(
+        `IF EXISTS (SELECT 1 FROM TrackerEmployeeAdmin WHERE EmployeeId = ?)
+           UPDATE TrackerEmployeeAdmin SET IsBrigadeLeader = ?, BrigadeName = ?, AssignedDepartment = ?, AssignedPosition = ?, UpdatedBy = ?, UpdatedAt = GETDATE() WHERE EmployeeId = ?
+         ELSE
+           INSERT INTO TrackerEmployeeAdmin (EmployeeId, AdministrativeStatus, IsBrigadeLeader, BrigadeName, AssignedDepartment, AssignedPosition, UpdatedBy, UpdatedAt)
+           VALUES (?, 'active', ?, ?, ?, ?, ?, GETDATE())`,
+        [newEmpId, isBrigadeLeader ? 1 : 0, brigadeName || null, cleanService, cleanFonction, updatedBy, newEmpId,
+         newEmpId, isBrigadeLeader ? 1 : 0, brigadeName || null, cleanService, cleanFonction, updatedBy]
+      );
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `تم إدراج الموظف (${cleanNomAr} ${cleanPrenomAr}) في السجل الإداري بنجاح ✅`,
+      employeeId: newEmpId,
+    });
+  } catch (err) {
+    console.error('Create employee error:', err.message);
+    res.status(500).json({ error: 'خطأ في إنشاء ملف الموظف: ' + err.message });
+  }
+});
+
 // Update Employee Administrative Status / Brigade Leader / Department Transfer
 router.put('/:id/admin-status', verifyToken, async (req, res) => {
   try {
