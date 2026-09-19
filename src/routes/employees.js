@@ -253,6 +253,19 @@ router.put('/:id/admin-status', verifyToken, async (req, res) => {
           assignedDepartment || null, assignedPosition || null, updatedBy
         ]
       );
+    if (assignedDepartment) {
+      if (pg) {
+        await db.query(`UPDATE "Employes" SET "Service" = $1 WHERE "Id" = $2`, [assignedDepartment, employeeId]);
+      } else {
+        await db.query(`UPDATE Employes SET Service = ? WHERE Id = ?`, [assignedDepartment, employeeId]);
+      }
+    }
+    if (assignedPosition) {
+      if (pg) {
+        await db.query(`UPDATE "Employes" SET "FonctionExercee" = $1 WHERE "Id" = $2`, [assignedPosition, employeeId]);
+      } else {
+        await db.query(`UPDATE Employes SET FonctionExercee = ? WHERE Id = ?`, [assignedPosition, employeeId]);
+      }
     }
 
     res.json({ success: true, message: 'تم تحديث الوضعية الإدارية والتكليف بنجاح' });
