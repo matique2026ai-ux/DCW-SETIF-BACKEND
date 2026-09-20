@@ -137,12 +137,62 @@ app.post(['/api/auth/change-password', '/api/change-password'], async (req, res)
   }
 });
 
+// ROLE_MAP constant for user queries
+const ROLE_MAP = {
+  1: 'director',
+  2: 'head_of_department',
+  3: 'bureau_chief',
+  4: 'inspector',
+  5: 'admin',
+};
+
+// Direct GET Users Handler (Avoids wildcard interceptors)
+app.get(['/api/auth/users', '/api/users'], async (req, res) => {
+  try {
+    const db = await getConnection();
+    const pg = isPostgres();
+    const query = pg
+      ? `SELECT u."Id", u."NomUtilisateur", u."NomComplet", u."Role", u."EstActif", u."DateCreation", u."DerniereConnexion", u."EmployeeId",
+                e."Nom" as "EmpNom", e."Prenom" as "EmpPrenom", e."Service" as "EmpService", e."Grade" as "EmpGrade"
+         FROM "UtilisateursSysteme" u
+         LEFT JOIN "Employes" e ON u."EmployeeId" = e."Id"
+         ORDER BY u."Id" ASC`
+      : `SELECT u.Id, u.NomUtilisateur, u.NomComplet, u.Role, u.EstActif, u.DateCreation, u.DerniereConnexion, u.EmployeeId,
+                e.Nom as EmpNom, e.Prenom as EmpPrenom, e.Service as EmpService, e.Grade as EmpGrade
+         FROM UtilisateursSysteme u
+         LEFT JOIN Employes e ON u.EmployeeId = e.Id
+         ORDER BY u.Id ASC`;
+
+    const users = await db.query(query);
+    const result = users.map((u) => ({
+      id: u.Id || u.id,
+      username: u.NomUtilisateur || u.nomutilisateur,
+      fullName: u.NomComplet || u.nomcomplet,
+      role: ROLE_MAP[u.Role !== undefined ? u.Role : u.role] || 'inspector',
+      roleId: u.Role !== undefined ? u.Role : u.role,
+      isActive: (u.EstActif !== undefined ? u.EstActif : u.estactif) === true || (u.EstActif || u.estactif) === 1,
+      createdAt: u.DateCreation || u.datecreation,
+      lastLogin: u.DerniereConnexion || u.derniereconnexion,
+      employeeId: u.EmployeeId || u.employeeid,
+      empNom: u.EmpNom || u.empnom,
+      empPrenom: u.EmpPrenom || u.empprenom,
+      empService: u.EmpService || u.empservice,
+      empGrade: u.EmpGrade || u.empgrade,
+    }));
+
+    res.json(result);
+  } catch (err) {
+    console.error('Fetch users direct error:', err.message);
+    res.status(500).json({ error: 'خطأ في جلب قائمة المستخدمين' });
+  }
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/programs', programRoutes);
 app.use('/api/attendance', attendanceRoutes);
 
-// Direct User Deletion Endpoint Handler (Supports DELETE & POST fallbacks across routes)
+// Direct User Deletion Endpoint Handler
 app.delete(['/api/auth/users/:id', '/api/users/:id'], async (req, res) => {
   try {
     const userId = parseInt(req.params.id, 10);
@@ -183,13 +233,12 @@ app.delete(['/api/auth/users/:id', '/api/users/:id'], async (req, res) => {
 });
 
 // Direct User Update Handler (Supports PUT & POST for user details, role, and active/suspended status)
-app.all(['/api/auth/users/:id', '/api/users/:id', '/api/auth/users/:id/update', '/api/users/:id/update'], async (req, res, next) => {
-  if (req.method === 'DELETE') return next();
-  if (req.method !== 'PUT' && req.method !== 'POST' && req.method !== 'PATCH') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+app.put(['/api/auth/users/:id', '/api/users/:id', '/api/auth/users/:id/update', '/api/users/:id/update'], async (req, res) => {
   try {
     const userId = parseInt(req.params.id, 10);
+    if (!userId || isNaN(userId)) {
+      return res.status(400).json({ error: 'معرف المستخدم غير صحيح' });
+    }
     const { fullName, role, isActive, employeeId } = req.body;
     const db = await getConnection();
     const pg = isPostgres();
@@ -545,7 +594,7 @@ app.get('/api/dashboard/analytics', async (req, res) => {
 // ─── FULL ARCHIVAL STATISTICS REPORT ─────────────────────────────────────────
 // GET /api/reports/inspection-summary?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
 // Used by Director's dashboard to generate strategic PDF reports
-app.get('/api/reports/inspection-summary', async (req, res) => {
+app.get(['/api/reports/inspection-summary', '/api/inspection-summary'], async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();
