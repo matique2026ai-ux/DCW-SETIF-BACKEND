@@ -342,4 +342,111 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// POST create a new employee
+router.post('/', async (req, res) => {
+  try {
+    const db = await getConnection();
+    const pg = isPostgres();
+    const {
+      numeroMatricule,
+      nom,
+      prenom,
+      nomAr,
+      prenomAr,
+      grade,
+      service,
+      fonctionExercee,
+      posteFinancier,
+      estActif,
+      brigadeName,
+      isBrigadeLeader
+    } = req.body;
+
+    if (!nomAr || !prenomAr || !service) {
+      return res.status(400).json({ error: 'الاسم واللقب والمصلحة حقول إلزامية' });
+    }
+
+    const insertQuery = pg
+      ? `INSERT INTO "Employes" ("NumeroMatricule", "Nom", "Prenom", "NomAr", "PrenomAr", "Grade", "Service", "FonctionExercee", "PosteFinancier", "EstActif")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         RETURNING "Id"`
+      : `INSERT INTO Employes (NumeroMatricule, Nom, Prenom, NomAr, PrenomAr, Grade, Service, FonctionExercee, PosteFinancier, EstActif)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+         SELECT SCOPE_IDENTITY() as Id;`;
+
+    const params = [
+      numeroMatricule || null,
+      nom || nomAr,
+      prenom || prenomAr,
+      nomAr,
+      prenomAr,
+      grade || 'مفتش',
+      service,
+      fonctionExercee || null,
+      posteFinancier || null,
+      estActif !== false
+    ];
+
+    const result = await db.query(insertQuery, params);
+    const newId = result[0]?.Id || result[0]?.id;
+
+    if (newId && (brigadeName || isBrigadeLeader)) {
+      if (pg) {
+        await db.query(
+          `INSERT INTO "TrackerEmployeeAdmin" ("EmployeeId", "BrigadeName", "IsBrigadeLeader", "AssignedDepartment", "UpdatedAt")
+           VALUES ($1, $2, $3, $4, NOW())
+           ON CONFLICT ("EmployeeId") DO UPDATE SET "BrigadeName" = EXCLUDED."BrigadeName", "IsBrigadeLeader" = EXCLUDED."IsBrigadeLeader"`,
+          [newId, brigadeName || null, isBrigadeLeader === true, service]
+        );
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'تم إضافة الموظف بنجاح ✅',
+      id: newId,
+      employee: {
+        id: newId,
+        numeroMatricule,
+        nom: nom || nomAr,
+        prenom: prenom || prenomAr,
+        nomAr,
+        prenomAr,
+        grade,
+        service
+      }
+    });
+  } catch (err) {
+    console.error('Create employee error:', err.message);
+    res.status(500).json({ error: 'خطأ في إنشاء الموظف: ' + err.message });
+  }
+});
+
+// DELETE employee
+router.delete('/:id', async (req, res) => {
+  try {
+    const db = await getConnection();
+    const pg = isPostgres();
+    const employeeId = parseInt(req.params.id, 10);
+    if (!employeeId || isNaN(employeeId)) {
+      return res.status(400).json({ error: 'معرف الموظف غير صحيح' });
+    }
+
+    if (pg) {
+      await db.query('DELETE FROM "TrackerEmployeeAdmin" WHERE "EmployeeId" = $1', [employeeId]);
+      await db.query('DELETE FROM "UtilisateursSysteme" WHERE "EmployeeId" = $1', [employeeId]);
+      await db.query('DELETE FROM "Employes" WHERE "Id" = $1', [employeeId]);
+    } else {
+      await db.query('DELETE FROM TrackerEmployeeAdmin WHERE EmployeeId = ?', [employeeId]);
+      await db.query('DELETE FROM UtilisateursSysteme WHERE EmployeeId = ?', [employeeId]);
+      await db.query('DELETE FROM Employes WHERE Id = ?', [employeeId]);
+    }
+
+    res.json({ success: true, message: 'تم حذف الموظف وحسابه بنجاح ✅' });
+  } catch (err) {
+    console.error('Delete employee error:', err.message);
+    res.status(500).json({ error: 'خطأ أثناء حذف الموظف: ' + err.message });
+  }
+});
+
 module.exports = router;
