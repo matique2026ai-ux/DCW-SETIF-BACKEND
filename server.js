@@ -1393,9 +1393,11 @@ async function start() {
     const publicPath = path.join(__dirname, 'public');
     if (fs.existsSync(publicPath)) {
       app.use(express.static(publicPath));
-      app.get('*', (req, res, next) => {
-        if (req.path.startsWith('/api')) return next();
-        res.sendFile(path.join(publicPath, 'index.html'));
+      app.use((req, res, next) => {
+        if (req.method === 'GET' && !req.path.startsWith('/api')) {
+          return res.sendFile(path.join(publicPath, 'index.html'));
+        }
+        next();
       });
       console.log('🌐 Static Flutter web app enabled from public/');
     }
