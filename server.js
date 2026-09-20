@@ -152,12 +152,12 @@ app.get(['/api/auth/users', '/api/users'], async (req, res) => {
     const db = await getConnection();
     const pg = isPostgres();
     const query = pg
-      ? `SELECT u."Id", u."NomUtilisateur", u."NomComplet", u."Role", u."EstActif", u."DateCreation", u."DerniereConnexion", u."EmployeeId",
+      ? `SELECT u."Id", u."NomUtilisateur", u."NomComplet", u."Role", u."EstActif", u."DateCreation", u."DerniereConnexion", u."EmployeeId", u."DeviceId", u."DeviceName",
                 e."Nom" as "EmpNom", e."Prenom" as "EmpPrenom", e."Service" as "EmpService", e."Grade" as "EmpGrade"
          FROM "UtilisateursSysteme" u
          LEFT JOIN "Employes" e ON u."EmployeeId" = e."Id"
          ORDER BY u."Id" ASC`
-      : `SELECT u.Id, u.NomUtilisateur, u.NomComplet, u.Role, u.EstActif, u.DateCreation, u.DerniereConnexion, u.EmployeeId,
+      : `SELECT u.Id, u.NomUtilisateur, u.NomComplet, u.Role, u.EstActif, u.DateCreation, u.DerniereConnexion, u.EmployeeId, u.DeviceId, u.DeviceName,
                 e.Nom as EmpNom, e.Prenom as EmpPrenom, e.Service as EmpService, e.Grade as EmpGrade
          FROM UtilisateursSysteme u
          LEFT JOIN Employes e ON u.EmployeeId = e.Id
@@ -173,6 +173,8 @@ app.get(['/api/auth/users', '/api/users'], async (req, res) => {
       isActive: (u.EstActif !== undefined ? u.EstActif : u.estactif) === true || (u.EstActif || u.estactif) === 1,
       createdAt: u.DateCreation || u.datecreation,
       lastLogin: u.DerniereConnexion || u.derniereconnexion,
+      deviceId: u.DeviceId || u.deviceid || null,
+      deviceName: u.DeviceName || u.devicename || null,
       employeeId: u.EmployeeId || u.employeeid,
       empNom: u.EmpNom || u.empnom,
       empPrenom: u.EmpPrenom || u.empprenom,
