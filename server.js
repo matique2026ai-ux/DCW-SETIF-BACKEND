@@ -417,7 +417,224 @@ app.get('/api/dashboard/analytics', async (req, res) => {
   }
 });
 
-// Direct Visit Approve & Delete Fallback
+// ─── FULL ARCHIVAL STATISTICS REPORT ─────────────────────────────────────────
+// GET /api/reports/inspection-summary?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+// Used by Director's dashboard to generate strategic PDF reports
+app.get('/api/reports/inspection-summary', async (req, res) => {
+  try {
+    const db = await getConnection();
+    const pg = isPostgres();
+    const today = getTodayAlgeria();
+    const { startDate, endDate, service } = req.query;
+
+    const sDate = startDate || today;
+    const eDate = endDate || today;
+
+    // ── 1. All visits in range with GPS + approval + inspector info
+    const visits = await db.query(
+      pg
+        ? `SELECT tv."Id", tv."EmployeeId", tv."Date", tv."CheckInTime", tv."CheckOutTime",
+                  tv."Latitude", tv."Longitude", tv."Accuracy", tv."LocationName",
+                  tv."ShopName", tv."ShopType", tv."ViolationFound", tv."ViolationType",
+                  tv."ViolationNotes", tv."LegalAction", tv."SeizureValue",
+                  tv."IsApproved", tv."ApprovedBy", tv."ApprovedAt",
+                  tv."Notes", tv."Photo",
+                  e."NomAr", e."PrenomAr", e."Nom", e."Prenom",
+                  e."Service", e."Grade", e."NumeroMatricule"
+           FROM "TrackerVisits" tv
+           LEFT JOIN "Employes" e ON tv."EmployeeId" = e."Id"
+           WHERE tv."Date" >= $1 AND tv."Date" <= $2
+           ${service ? 'AND e."Service" ILIKE $3' : ''}
+           ORDER BY tv."Date" DESC, tv."CheckInTime" DESC`
+        : `SELECT tv.*,e.NomAr,e.PrenomAr,e.Nom,e.Prenom,e.Service,e.Grade,e.NumeroMatricule
+           FROM TrackerVisits tv
+           LEFT JOIN Employes e ON tv.EmployeeId = e.Id
+           WHERE tv.Date >= ? AND tv.Date <= ?
+           ORDER BY tv.Date DESC, tv.CheckInTime DESC`,
+      service ? [sDate, eDate, `%${service}%`] : [sDate, eDate]
+    );
+
+    // ── 2. Attendance in range with GPS traces
+    const attendance = await db.query(
+      pg
+        ? `SELECT ta."Id", ta."EmployeeId", ta."Date",
+                  ta."CheckInTime", ta."CheckOutTime",
+                  ta."CheckInLatitude", ta."CheckInLongitude",
+                  ta."CheckOutLatitude", ta."CheckOutLongitude",
+                  ta."CheckInLocation", ta."CheckOutLocation",
+                  ta."IsCheckedOut", ta."IsWithinGeofence",
+                  ta."EarlyReason", ta."LateMinutes",
+                  e."NomAr", e."PrenomAr", e."Nom", e."Prenom",
+                  e."Service", e."NumeroMatricule"
+           FROM "TrackerAttendance" ta
+           LEFT JOIN "Employes" e ON ta."EmployeeId" = e."Id"
+           WHERE ta."Date" >= $1 AND ta."Date" <= $2
+           ORDER BY ta."Date" DESC, ta."CheckInTime" DESC`
+        : `SELECT ta.*,e.NomAr,e.PrenomAr,e.Nom,e.Prenom,e.Service,e.NumeroMatricule
+           FROM TrackerAttendance ta
+           LEFT JOIN Employes e ON ta.EmployeeId = e.Id
+           WHERE ta.Date >= ? AND ta.Date <= ?
+           ORDER BY ta.Date DESC, ta.CheckInTime DESC`,
+      [sDate, eDate]
+    );
+
+    // ── 3. Per-inspector aggregation
+    const inspectorMap = {};
+    for (const v of visits) {
+      const empId = v.EmployeeId || v.employeeid;
+      const nomAr = v.NomAr || v.nomarr || '';
+      const prenomAr = v.PrenomAr || v.prenomarr || '';
+      const nom = v.Nom || v.nom || '';
+      const prenom = v.Prenom || v.prenom || '';
+      const service_ = v.Service || v.service || 'غير محدد';
+      const grade = v.Grade || v.grade || '';
+      const mat = v.NumeroMatricule || v.numeromatricule || '';
+      const isViol = v.ViolationFound === true || v.violationfound === true;
+      const sVal = parseFloat(v.SeizureValue || v.seizurevalue || 0) || 0;
+      const isApproved = v.IsApproved === true || v.isapproved === true;
+
+      if (!inspectorMap[empId]) {
+        inspectorMap[empId] = {
+          employeeId: empId,
+          name: (nomAr && prenomAr) ? `${nomAr} ${prenomAr}` : `${nom} ${prenom}`,
+          matricule: mat,
+          grade,
+          service: service_,
+          visitsCount: 0,
+          violationsCount: 0,
+          totalSeizureValue: 0,
+          approvedVisits: 0,
+          pendingVisits: 0,
+          gpsTraces: [],
+        };
+      }
+
+      const insp = inspectorMap[empId];
+      insp.visitsCount++;
+      if (isViol) insp.violationsCount++;
+      insp.totalSeizureValue += sVal;
+      if (isApproved) insp.approvedVisits++;
+      else insp.pendingVisits++;
+
+      // GPS trace archive
+      const lat = v.Latitude || v.latitude;
+      const lng = v.Longitude || v.longitude;
+      if (lat && lng) {
+        insp.gpsTraces.push({
+          date: v.Date || v.date,
+          time: v.CheckInTime || v.checkintime,
+          latitude: parseFloat(lat),
+          longitude: parseFloat(lng),
+          location: v.LocationName || v.locationname || '',
+          shopName: v.ShopName || v.shopname || '',
+          hasViolation: isViol,
+          seizureValue: sVal,
+          isApproved,
+        });
+      }
+    }
+
+    // ── 4. Per-department aggregation
+    const deptMap = {};
+    for (const v of visits) {
+      const dept = v.Service || v.service || 'غير محدد';
+      const isViol = v.ViolationFound === true || v.violationfound === true;
+      const sVal = parseFloat(v.SeizureValue || v.seizurevalue || 0) || 0;
+      const isApproved = v.IsApproved === true || v.isapproved === true;
+
+      if (!deptMap[dept]) {
+        deptMap[dept] = {
+          service: dept,
+          visitsCount: 0,
+          violationsCount: 0,
+          seizureValue: 0,
+          approvedCount: 0,
+          inspectorCount: new Set(),
+        };
+      }
+      deptMap[dept].visitsCount++;
+      if (isViol) deptMap[dept].violationsCount++;
+      deptMap[dept].seizureValue += sVal;
+      if (isApproved) deptMap[dept].approvedCount++;
+      const empId2 = v.EmployeeId || v.employeeid;
+      if (empId2) deptMap[dept].inspectorCount.add(empId2);
+    }
+    // Convert Set to count
+    for (const k of Object.keys(deptMap)) {
+      deptMap[k].inspectorCount = deptMap[k].inspectorCount.size;
+    }
+
+    // ── 5. Daily trend (visits per day)
+    const dailyMap = {};
+    for (const v of visits) {
+      const d = (v.Date || v.date || '').toString().substring(0, 10);
+      if (!dailyMap[d]) dailyMap[d] = { date: d, visits: 0, violations: 0, seizureValue: 0, approved: 0 };
+      dailyMap[d].visits++;
+      if (v.ViolationFound === true || v.violationfound === true) dailyMap[d].violations++;
+      dailyMap[d].seizureValue += parseFloat(v.SeizureValue || v.seizurevalue || 0) || 0;
+      if (v.IsApproved === true || v.isapproved === true) dailyMap[d].approved++;
+    }
+
+    // ── 6. Attendance GPS archive (daily presence with coordinates)
+    const attendanceGPS = attendance.map(a => ({
+      employeeId: a.EmployeeId || a.employeeid,
+      name: (a.NomAr || a.nomarr || '') + ' ' + (a.PrenomAr || a.prenomarr || ''),
+      matricule: a.NumeroMatricule || a.numeromatricule || '',
+      service: a.Service || a.service || '',
+      date: a.Date || a.date,
+      checkInTime: a.CheckInTime || a.checkintime,
+      checkOutTime: a.CheckOutTime || a.checkouttime,
+      checkInLatitude: parseFloat(a.CheckInLatitude || a.checkinlatitude || 0) || null,
+      checkInLongitude: parseFloat(a.CheckInLongitude || a.checkinlongitude || 0) || null,
+      checkOutLatitude: parseFloat(a.CheckOutLatitude || a.checkoutlatitude || 0) || null,
+      checkOutLongitude: parseFloat(a.CheckOutLongitude || a.checkoutlongitude || 0) || null,
+      checkInLocation: a.CheckInLocation || a.checkinlocation || '',
+      checkOutLocation: a.CheckOutLocation || a.checkoutlocation || '',
+      isWithinGeofence: a.IsWithinGeofence || a.iswithingeozone,
+      lateMinutes: a.LateMinutes || a.lateminutes || 0,
+      earlyReason: a.EarlyReason || a.earlyreason || null,
+    }));
+
+    // ── 7. Global totals
+    const totalVisits = visits.length;
+    const totalViolations = visits.filter(v => v.ViolationFound === true || v.violationfound === true).length;
+    const totalSeizure = visits.reduce((s, v) => s + (parseFloat(v.SeizureValue || v.seizurevalue || 0) || 0), 0);
+    const totalApproved = visits.filter(v => v.IsApproved === true || v.isapproved === true).length;
+    const violationRate = totalVisits > 0 ? Math.round((totalViolations / totalVisits) * 100) : 0;
+    const approvalRate = totalVisits > 0 ? Math.round((totalApproved / totalVisits) * 100) : 0;
+
+    res.json({
+      meta: {
+        generatedAt: getNowAlgeriaIso(),
+        generatedBy: 'DCW-SETIF-TRACKER API v3.2',
+        reportTitle: 'تقرير الإحصائيات الرقابية الشامل — مديرية التجارة سطيف',
+        periodStart: sDate,
+        periodEnd: eDate,
+        daysCount: Math.max(1, Math.round((new Date(eDate) - new Date(sDate)) / 86400000) + 1),
+      },
+      summary: {
+        totalVisits,
+        totalViolations,
+        violationRate,
+        totalSeizureValueDZD: Math.round(totalSeizure * 100) / 100,
+        totalApproved,
+        approvalRate,
+        totalInspectors: Object.keys(inspectorMap).length,
+        totalAttendanceDays: attendance.length,
+      },
+      inspectorBreakdown: Object.values(inspectorMap).sort((a, b) => b.visitsCount - a.visitsCount),
+      departmentBreakdown: Object.values(deptMap),
+      dailyTrend: Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date)),
+      attendanceGPSArchive: attendanceGPS,
+      allVisits: visits,
+    });
+  } catch (err) {
+    console.error('Inspection summary report error:', err.message);
+    res.status(500).json({ error: 'خطأ في توليد تقرير الإحصاء الشامل: ' + err.message });
+  }
+});
+
+
 app.all(['/api/visits/:id/approve', '/api/visits/:id/vise'], async (req, res) => {
   try {
     const { approvedBy } = req.body;
