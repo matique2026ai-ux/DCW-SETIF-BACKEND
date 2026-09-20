@@ -251,7 +251,11 @@ app.put(['/api/auth/users/:id', '/api/users/:id', '/api/auth/users/:id/update', 
       admin: 5,
     };
     const dbRole = typeof role === 'number' ? role : (REVERSE_ROLE_MAP[role] || 4);
-    const activeVal = isActive === true || isActive === 1;
+    let activeVal = isActive === true || isActive === 1;
+    // Safety lock: Master technical admin cannot be frozen or suspended
+    if (userId === 1) {
+      activeVal = true;
+    }
 
     const updateQuery = pg
       ? `UPDATE "UtilisateursSysteme"

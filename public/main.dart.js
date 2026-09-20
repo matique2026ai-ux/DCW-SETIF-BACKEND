@@ -61271,14 +61271,14 @@ $1(a){var s=this
 return new A.fI(new A.aOG(s.a,s.b,s.c,s.d,a),null)},
 $S:25}
 A.aOG.prototype={
-$2(a,b){var s,r=this,q=null,p=A.u(16),o=r.c,n=t.p,m=A.Y(A.b([B.ajR,B.at,A.af(A.j("\u062a\u0639\u062f\u064a\u0644 \u062d\u0633\u0627\u0628: "+A.e(J.h(o,"username")),q,q,q,B.ch,q,q,q),1)],n),B.y,B.q,B.r,0),l=r.d,k=A.cp(q,B.aw,!1,q,!0,B.I,q,A.cr(),l,q,q,q,q,q,2,B.Fu,B.a2,!0,q,!0,q,!1,q,B.ax,q,q,q,q,q,q,q,q,1,q,q,!1,"\u2022",q,q,q,q,q,!1,q,q,!1,q,!0,q,B.ar,q,q,q,q,q,q,q,q,q,q,q,B.bT,!0,B.af,q,B.aH,q,q,q,q),j=r.a,i=A.fn(B.Ft,B.a8,j.a,!0,B.QS,new A.aOA(j,b),B.bT,t.N),h=j.c,g=A.b([B.abL],t.Ol),f=r.b
-B.m.M(g,J.fN(f.r,new A.aOB(),t.EP))
-g=A.fn(B.akR,B.a8,h,!0,g,new A.aOC(j,b),B.e1,t.bo)
-h=j.b
-s=h?"\u0627\u0644\u062d\u0633\u0627\u0628 \u0646\u0634\u0637 (Active)":"\u0627\u0644\u062d\u0633\u0627\u0628 \u0645\u0648\u0642\u0648\u0641 / \u0645\u062c\u0645\u0651\u062f (Suspended)"
-k=A.dr(A.E(q,A.a8(A.b([k,B.ah,i,B.ah,g,B.ah,A.MY(B.L,q,B.Y,new A.aOD(j,b),q,q,A.j(s,q,q,q,A.b6(q,q,h?B.L:B.Y,q,q,q,q,q,"Tajawal",q,q,q,q,q,B.V,q,q,!0,q,q,q,q,q,q,q,q),q,q,q),j.b)],n),B.y,B.q,B.ac),B.v,q,B.uJ,q,q,q,q,q,q,q,17976931348623157e292),q,q,B.az)
-i=r.e
-return A.dL(A.b([A.dH(B.dq,new A.aOE(i),q),A.ep(B.bDP,new A.aOF(j,f,a,i,o,l),A.bE(q,q,B.cN,q,q,q,q,q,q,B.H,q,q,q,q,q,q,q,q,q,q))],n),B.b1,k,q,new A.as(p,B.cL),m)},
+$2(a,b){var s=this,r=null,q="username",p=A.u(16),o=s.c,n=J.V(o),m=t.p,l=A.Y(A.b([B.ajR,B.at,A.af(A.j("\u062a\u0639\u062f\u064a\u0644 \u062d\u0633\u0627\u0628: "+A.e(n.h(o,q)),r,r,r,B.ch,r,r,r),1)],m),B.y,B.q,B.r,0),k=s.d,j=A.cp(r,B.aw,!1,r,!0,B.I,r,A.cr(),k,r,r,r,r,r,2,B.Fu,B.a2,!0,r,!0,r,!1,r,B.ax,r,r,r,r,r,r,r,r,1,r,r,!1,"\u2022",r,r,r,r,r,!1,r,r,!1,r,!0,r,B.ar,r,r,r,r,r,r,r,r,r,r,r,B.bT,!0,B.af,r,B.aH,r,r,r,r),i=s.a,h=A.fn(B.Ft,B.a8,i.a,!0,B.QS,new A.aOA(i,b),B.bT,t.N),g=i.c,f=A.b([B.abL],t.Ol),e=s.b
+B.m.M(f,J.fN(e.r,new A.aOB(),t.EP))
+f=A.b([j,B.ah,h,B.ah,A.fn(B.akR,B.a8,g,!0,f,new A.aOC(i,b),B.e1,t.bo)],m)
+if(!J.c(n.h(o,q),"tracker_admin")){n=i.b
+j=n?"\u0627\u0644\u062d\u0633\u0627\u0628 \u0646\u0634\u0637 (Active)":"\u0627\u0644\u062d\u0633\u0627\u0628 \u0645\u0648\u0642\u0648\u0641 / \u0645\u062c\u0645\u0651\u062f (Suspended)"
+B.m.M(f,A.b([B.ah,A.MY(B.L,r,B.Y,new A.aOD(i,b),r,r,A.j(j,r,r,r,A.b6(r,r,n?B.L:B.Y,r,r,r,r,r,"Tajawal",r,r,r,r,r,B.V,r,r,!0,r,r,r,r,r,r,r,r),r,r,r),i.b)],m))}n=A.dr(A.E(r,A.a8(f,B.y,B.q,B.ac),B.v,r,B.uJ,r,r,r,r,r,r,r,17976931348623157e292),r,r,B.az)
+j=s.e
+return A.dL(A.b([A.dH(B.dq,new A.aOE(j),r),A.ep(B.bDP,new A.aOF(i,e,a,j,o,k),A.bE(r,r,B.cN,r,r,r,r,r,r,B.H,r,r,r,r,r,r,r,r,r,r))],m),B.b1,n,r,new A.as(p,B.cL),l)},
 $S:33}
 A.aOA.prototype={
 $1(a){return this.b.$1(new A.aOz(this.a,a))},
@@ -61559,31 +61559,27 @@ A.aNW.prototype={
 $2(a,b){return B.aN},
 $S:53}
 A.aNV.prototype={
-$2(a,a0){var s,r,q,p,o,n="role",m=null,l="username",k="empService",j=this.a,i=j.gGf()[a0],h=J.V(i),g=J.c(h.h(i,"isActive"),!0),f=j.aux(h.h(i,n)),e=A.u(14),d=A.ai(g?B.aO:B.Y.I(0.5),1),c=j.wR(h.h(i,n)).I(0.2),b=A.ai(j.wR(h.h(i,n)),1)
-b=A.E(m,A.ct(A.ci(j.avm(h.h(i,n)),j.wR(h.h(i,n)),m,18),m,m),B.v,m,m,new A.M(c,m,b,m,m,m,B.aW),m,38,m,m,m,m,38)
-c=h.h(i,"fullName")
-c=c==null?m:J.D(c)
-if(c==null){c=h.h(i,l)
-c=c==null?m:J.D(c)}c=A.af(A.j(c==null?"\u0645\u0633\u062a\u062e\u062f\u0645":c,m,B.aK,m,B.dK,m,m,m),1)
-s=j.wR(h.h(i,n)).I(0.15)
+$2(a,b){var s,r,q,p,o="role",n=null,m="username",l="empService",k=this.a,j=k.gGf()[b],i=J.V(j),h=J.c(i.h(j,"isActive"),!0),g=k.aux(i.h(j,o)),f=A.u(14),e=A.ai(h?B.aO:B.Y.I(0.5),1),d=k.wR(i.h(j,o)).I(0.2),c=A.ai(k.wR(i.h(j,o)),1)
+c=A.E(n,A.ct(A.ci(k.avm(i.h(j,o)),k.wR(i.h(j,o)),n,18),n,n),B.v,n,n,new A.M(d,n,c,n,n,n,B.aW),n,38,n,n,n,n,38)
+d=i.h(j,"fullName")
+d=d==null?n:J.D(d)
+if(d==null){d=i.h(j,m)
+d=d==null?n:J.D(d)}d=A.af(A.j(d==null?"\u0645\u0633\u062a\u062e\u062f\u0645":d,n,B.aK,n,B.dK,n,n,n),1)
+s=k.wR(i.h(j,o)).I(0.15)
 r=A.u(6)
-q=A.ai(j.wR(h.h(i,n)).I(0.5),1)
+q=A.ai(k.wR(i.h(j,o)).I(0.5),1)
 p=t.p
-r=A.b([c,B.bE,A.E(m,A.j(f,m,m,m,A.b6(m,m,j.wR(h.h(i,n)),m,m,m,m,m,"Tajawal",m,m,10,m,m,B.V,m,m,!0,m,m,m,m,m,m,m,m),m,m,m),B.v,m,m,new A.M(s,m,q,r,m,m,B.C),m,m,m,B.DB,m,m,m)],p)
-if(!g)B.m.M(r,A.b([B.c0,A.E(m,B.bFv,B.v,m,m,new A.M(B.Y.I(0.2),m,m,A.u(6),m,m,B.C),m,m,m,B.adn,m,m,m)],p))
-c=A.b([A.Y(r,B.y,B.q,B.r,0)],p)
-if(h.h(i,k)!=null&&J.D(h.h(i,k)).length!==0)B.m.M(c,A.b([B.bL,A.j(J.D(h.h(i,k)),m,B.aK,m,B.nw,m,m,m)],p))
-c=A.Y(A.b([b,B.at,A.af(A.a8(c,B.U,B.q,B.r),1)],p),B.y,B.q,B.r,0)
-b=A.u(6)
-b=A.E(m,A.Y(A.b([B.agx,B.c0,A.j("\u0627\u0633\u0645 \u0627\u0644\u062f\u062e\u0648\u0644: "+A.e(h.h(i,l)),m,m,m,B.bAM,m,m,m)],p),B.y,B.q,B.ac,0),B.v,m,m,new A.M(B.by,m,m,b,m,m,B.C),m,m,m,B.fZ,m,m,m)
-s=A.d_(m,B.fL,m,B.akd,m,m,new A.aNK(j,i),B.f4,m,m,"\u062a\u0639\u062f\u064a\u0644 \u0627\u0644\u062d\u0633\u0627\u0628 \u0648\u0627\u0644\u0635\u0644\u0627\u062d\u064a\u0629",B.dr)
-r=A.d_(m,B.fL,m,B.ahf,m,m,new A.aNL(j,i),B.f4,m,m,"\u0625\u0639\u0627\u062f\u0629 \u062a\u0639\u064a\u064a\u0646 \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631",B.dr)
-q=g?B.x4:B.h2
-q=A.ci(q,g?B.mZ:B.L,m,18)
-o=g?"\u062a\u062c\u0645\u064a\u062f / \u0625\u064a\u0642\u0627\u0641 \u0627\u0644\u062d\u0633\u0627\u0628":"\u062a\u0641\u0639\u064a\u0644 \u0627\u0644\u062d\u0633\u0627\u0628"
-o=A.b([b,B.cx,s,B.c0,r,B.c0,A.d_(m,B.fL,m,q,m,m,new A.aNM(j,a,i,g),B.f4,m,m,o,B.dr)],p)
-if(!J.c(h.h(i,l),"tracker_admin"))B.m.M(o,A.b([B.c0,A.d_(m,B.fL,m,B.ai5,m,m,new A.aNN(j,i),B.f4,m,m,"\u062d\u0630\u0641 \u0627\u0644\u062d\u0633\u0627\u0628 \u0646\u0647\u0627\u0626\u064a\u0627\u064b",B.dr)],p))
-return A.E(m,A.a8(A.b([c,B.aN,B.aaZ,B.c2,A.Y(o,B.y,B.q,B.r,0)],p),B.U,B.q,B.r),B.v,m,m,new A.M(B.b1,m,d,e,m,m,B.C),m,m,m,B.Dm,m,m,m)},
+r=A.b([d,B.bE,A.E(n,A.j(g,n,n,n,A.b6(n,n,k.wR(i.h(j,o)),n,n,n,n,n,"Tajawal",n,n,10,n,n,B.V,n,n,!0,n,n,n,n,n,n,n,n),n,n,n),B.v,n,n,new A.M(s,n,q,r,n,n,B.C),n,n,n,B.DB,n,n,n)],p)
+if(!h)B.m.M(r,A.b([B.c0,A.E(n,B.bFv,B.v,n,n,new A.M(B.Y.I(0.2),n,n,A.u(6),n,n,B.C),n,n,n,B.adn,n,n,n)],p))
+d=A.b([A.Y(r,B.y,B.q,B.r,0)],p)
+if(i.h(j,l)!=null&&J.D(i.h(j,l)).length!==0)B.m.M(d,A.b([B.bL,A.j(J.D(i.h(j,l)),n,B.aK,n,B.nw,n,n,n)],p))
+d=A.Y(A.b([c,B.at,A.af(A.a8(d,B.U,B.q,B.r),1)],p),B.y,B.q,B.r,0)
+c=A.u(6)
+c=A.b([A.E(n,A.Y(A.b([B.agx,B.c0,A.j("\u0627\u0633\u0645 \u0627\u0644\u062f\u062e\u0648\u0644: "+A.e(i.h(j,m)),n,n,n,B.bAM,n,n,n)],p),B.y,B.q,B.ac,0),B.v,n,n,new A.M(B.by,n,n,c,n,n,B.C),n,n,n,B.fZ,n,n,n),B.cx,A.d_(n,B.fL,n,B.akd,n,n,new A.aNK(k,j),B.f4,n,n,"\u062a\u0639\u062f\u064a\u0644 \u0627\u0644\u062d\u0633\u0627\u0628 \u0648\u0627\u0644\u0635\u0644\u0627\u062d\u064a\u0629",B.dr),B.c0,A.d_(n,B.fL,n,B.ahf,n,n,new A.aNL(k,j),B.f4,n,n,"\u0625\u0639\u0627\u062f\u0629 \u062a\u0639\u064a\u064a\u0646 \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631",B.dr)],p)
+if(!J.c(i.h(j,m),"tracker_admin")){i=h?B.x4:B.h2
+i=A.ci(i,h?B.mZ:B.L,n,18)
+s=h?"\u062a\u062c\u0645\u064a\u062f / \u0625\u064a\u0642\u0627\u0641 \u0627\u0644\u062d\u0633\u0627\u0628":"\u062a\u0641\u0639\u064a\u0644 \u0627\u0644\u062d\u0633\u0627\u0628"
+B.m.M(c,A.b([B.c0,A.d_(n,B.fL,n,i,n,n,new A.aNM(k,a,j,h),B.f4,n,n,s,B.dr),B.c0,A.d_(n,B.fL,n,B.ai5,n,n,new A.aNN(k,j),B.f4,n,n,"\u062d\u0630\u0641 \u0627\u0644\u062d\u0633\u0627\u0628 \u0646\u0647\u0627\u0626\u064a\u0627\u064b",B.dr)],p))}return A.E(n,A.a8(A.b([d,B.aN,B.aaZ,B.c2,A.Y(c,B.y,B.q,B.r,0)],p),B.U,B.q,B.r),B.v,n,n,new A.M(B.b1,n,e,f,n,n,B.C),n,n,n,B.Dm,n,n,n)},
 $S:43}
 A.aNK.prototype={
 $0(){return this.a.aHP(this.b)},
