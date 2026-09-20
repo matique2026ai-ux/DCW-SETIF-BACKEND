@@ -544,25 +544,56 @@ async function seedUsers() {
   const db = await getConnection();
   const pg = isPostgres();
 
-  // Remove obsolete/dummy accounts
+  // Remove obsolete/dummy accounts with null employeeId (except admins/directors/heads)
   try {
     await db.query(
       pg
-        ? 'DELETE FROM "UtilisateursSysteme" WHERE "NomUtilisateur" IN (\'agent\', \'inspecteur\', \'kriba\')'
-        : 'DELETE FROM UtilisateursSysteme WHERE NomUtilisateur IN (\'agent\', \'inspecteur\', \'kriba\')'
+        ? 'DELETE FROM "UtilisateursSysteme" WHERE "NomUtilisateur" IN (\'agent\', \'kriba\')'
+        : 'DELETE FROM UtilisateursSysteme WHERE NomUtilisateur IN (\'agent\', \'kriba\')'
     );
   } catch (err) {
     console.log('Cleanup warning:', err.message);
   }
 
+  // Get active employees to link accounts directly
+  let empRows = [];
+  try {
+    empRows = await db.query(
+      pg
+        ? 'SELECT "Id", "Nom", "Prenom", "NomAr", "PrenomAr", "Service" FROM "Employes" WHERE "EstActif" = true ORDER BY "Id" ASC'
+        : 'SELECT Id, Nom, Prenom, NomAr, PrenomAr, Service FROM Employes WHERE EstActif = 1 ORDER BY Id ASC'
+    );
+  } catch (_) {}
+
+  const empMap = {};
+  for (const row of empRows) {
+    const nom = (row.Nom || row.nom || '').trim();
+    const prenom = (row.Prenom || row.prenom || '').trim();
+    empMap[`${nom}_${prenom}`] = row.Id || row.id;
+  }
+
+  const kribaaId = empMap['كريبع_كمال'] || (empRows[0]?.Id || empRows[0]?.id) || 2;
+  const lounisId = empMap['لونيس_جمال'] || (empRows[1]?.Id || empRows[1]?.id) || 3;
+  const ghazaliId = empMap['غزالي_زينب'] || (empRows[2]?.Id || empRows[2]?.id) || 4;
+  const ladraaId = empMap['لدرع_نعيمة'] || (empRows[3]?.Id || empRows[3]?.id) || 5;
+  const dekhiliId = empMap['دخيلي_خالد'] || (empRows[4]?.Id || empRows[4]?.id) || 6;
+
   const users = [
-    { username: 'tracker_admin', password: 'admin123', name: 'مدير النظام', dbRole: 5 },
-    { username: 'directeur', password: 'directeur123', name: 'المدير الولائي', dbRole: 1 },
-    { username: 'chef_concurrence', password: 'chef123', name: 'رئيس مصلحة المنافسة والتحقيقات', dbRole: 2 },
-    { username: 'chef_consommation', password: 'chef123', name: 'رئيس مصلحة حماية المستهلك وقمع الغش', dbRole: 2 },
-    { username: 'chef_administration', password: 'chef123', name: 'رئيس مصلحة الإدارة والوسائل', dbRole: 2 },
-    { username: 'bureau_user', password: 'bureau123', name: 'رئيس مكتب المستخدمين', dbRole: 3 },
-    { username: 'chef_bureau', password: 'Bureau@2024', name: 'رئيس مكتب المستخدمين', dbRole: 3 },
+    { username: 'tracker_admin', password: 'admin123', name: 'مدير النظام التقني', dbRole: 5, employeeId: null },
+    { username: 'directeur', password: 'directeur123', name: 'المدير الولائي للتجارة', dbRole: 1, employeeId: null },
+    { username: 'chef_concurrence', password: 'chef123', name: 'رئيس مصلحة المنافسة والتحقيقات الاقتصادية', dbRole: 2, employeeId: null },
+    { username: 'chef_consommation', password: 'chef123', name: 'رئيس مصلحة حماية المستهلك وقمع الغش', dbRole: 2, employeeId: null },
+    { username: 'chef_administration', password: 'chef123', name: 'رئيس مصلحة الإدارة والوسائل', dbRole: 2, employeeId: null },
+    { username: 'bureau_user', password: 'bureau123', name: 'رئيس مكتب المستخدمين', dbRole: 3, employeeId: null },
+    { username: 'chef_bureau', password: 'bureau123', name: 'رئيس مكتب المستخدمين', dbRole: 3, employeeId: null },
+    // Standard Inspector Account — Directly linked to Employee كريبع كمال (مصلحة حماية المستهلك وقمع الغش)
+    { username: 'inspecteur', password: 'chef123', name: 'كمال كريبع (مفتش قمع الغش)', dbRole: 4, employeeId: kribaaId },
+    // Individual Official Accounts for Inspectors
+    { username: 'kamel_kribaa', password: 'chef123', name: 'كمال كريبع', dbRole: 4, employeeId: kribaaId },
+    { username: 'djamel_lounis', password: 'chef123', name: 'جمال لونيس', dbRole: 4, employeeId: lounisId },
+    { username: 'zineb_ghazali', password: 'chef123', name: 'زينب غزالي', dbRole: 4, employeeId: ghazaliId },
+    { username: 'naima_ladraa', password: 'chef123', name: 'نعيمة لدرع', dbRole: 4, employeeId: ladraaId },
+    { username: 'khaled_dekhili', password: 'chef123', name: 'خالد دخيلي', dbRole: 4, employeeId: dekhiliId },
   ];
 
   for (const u of users) {
@@ -580,7 +611,7 @@ async function seedUsers() {
           : 'INSERT INTO UtilisateursSysteme (NomUtilisateur,MotDePasseHash,NomComplet,Role,EstActif,DateCreation,EmployeeId) VALUES (?,?,?,?,1,GETDATE(),?)',
         [u.username, hash, u.name, u.dbRole, u.employeeId || null]
       );
-      console.log(`✅ User: ${u.username} / ${u.password}`);
+      console.log(`✅ User created: ${u.username}`);
     } else {
       await db.query(
         pg
@@ -588,7 +619,7 @@ async function seedUsers() {
           : 'UPDATE UtilisateursSysteme SET MotDePasseHash=?, NomComplet=?, Role=?, EmployeeId=? WHERE NomUtilisateur=?',
         [hash, u.name, u.dbRole, u.employeeId || null, u.username]
       );
-      console.log(`🔄 User: ${u.username} / ${u.password}`);
+      console.log(`🔄 User synchronized: ${u.username} (EmployeeId: ${u.employeeId})`);
     }
   }
 }
@@ -666,8 +697,8 @@ async function seedPrograms() {
 async function start() {
   try {
     await ensureTables();
-    await seedUsers();
     await seedEmployees();
+    await seedUsers();
     await seedPrograms();
     app.listen(PORT, () => {
       console.log(`🚀 DRH-SETIF-TRACKER API v3.0 running on http://localhost:${PORT}`);
