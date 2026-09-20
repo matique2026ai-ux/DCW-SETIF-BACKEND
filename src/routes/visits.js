@@ -277,5 +277,28 @@ router.get('/employee/:employeeId/summary', async (req, res) => {
   }
 });
 
+// DELETE visit (حذف / إلغاء محضر معاينة)
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const db = await getConnection();
+    const pg = isPostgres();
+    const numericId = parseInt(id, 10);
+    if (isNaN(numericId) || numericId <= 0) {
+      return res.status(400).json({ error: 'معرف المعاينة غير صالح' });
+    }
+
+    await db.query(
+      pg ? 'DELETE FROM "TrackerVisits" WHERE "Id" = $1' : 'DELETE FROM TrackerVisits WHERE Id = ?',
+      [numericId]
+    );
+
+    res.json({ success: true, message: 'تم حذف محضر المعاينة بنجاح ✅' });
+  } catch (err) {
+    console.error('Delete visit error:', err.message);
+    res.status(500).json({ error: 'خطأ أثناء حذف محضر المعاينة: ' + err.message });
+  }
+});
+
 module.exports = router;
 

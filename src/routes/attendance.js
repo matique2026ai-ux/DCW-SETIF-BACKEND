@@ -523,18 +523,18 @@ router.post('/checkin', async (req, res) => {
     const today = getTodayAlgeria();
 
     // 1️⃣ Device Security Verification (Anti-Spoofing):
-    if (finalDeviceId) {
-      const userRows = await db.query(
-        pg
-          ? `SELECT "Id", "DeviceId" FROM "UtilisateursSysteme" WHERE "EmployeeId" = $1`
-          : `SELECT Id, DeviceId FROM UtilisateursSysteme WHERE EmployeeId = ?`,
-        [finalEmpId]
-      );
-      if (userRows && userRows.length > 0) {
-        const boundDev = userRows[0].DeviceId || userRows[0].deviceid;
-        if (boundDev && boundDev !== finalDeviceId) {
+    const userRows = await db.query(
+      pg
+        ? `SELECT "Id", "DeviceId" FROM "UtilisateursSysteme" WHERE "EmployeeId" = $1`
+        : `SELECT Id, DeviceId FROM UtilisateursSysteme WHERE EmployeeId = ?`,
+      [finalEmpId]
+    );
+    if (userRows && userRows.length > 0) {
+      const boundDev = userRows[0].DeviceId || userRows[0].deviceid;
+      if (boundDev) {
+        if (!finalDeviceId || boundDev !== finalDeviceId) {
           return res.status(403).json({
-            error: 'تنبيه أمني: البصمة الجغرافية مرفوضة لأن الهاتف غير مطابق للجهاز المعتمد لهذا الحساب (Device Signature Mismatch).',
+            error: 'تنبيه أمني: البصمة الجغرافية مرفوضة قطعياً لأن الهاتف المستخدم غير مطابق للجهاز المعتمد المسجل رسمياً لهذا المفتش (Device Security Mismatch).',
             isDeviceMismatch: true,
           });
         }

@@ -119,4 +119,31 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+router.post('/cancel', async (req, res) => {
+  try {
+    const { id, title } = req.body;
+    const db = await getConnection();
+    const pg = isPostgres();
+
+    const numericId = parseInt(id, 10);
+    if (!isNaN(numericId) && numericId > 0) {
+      await db.query(
+        pg ? 'DELETE FROM "TrackerPrograms" WHERE "Id" = $1' : 'DELETE FROM TrackerPrograms WHERE Id = ?',
+        [numericId]
+      );
+    } else if (title) {
+      await db.query(
+        pg ? 'DELETE FROM "TrackerPrograms" WHERE "Title" = $1' : 'DELETE FROM TrackerPrograms WHERE Title = ?',
+        [title]
+      );
+    }
+
+    res.json({ success: true, message: 'تم إلغاء أمر المهمة بنجاح ✅' });
+  } catch (err) {
+    console.error('Cancel program POST error:', err.message);
+    res.status(500).json({ error: 'خطأ في إلغاء أمر المهمة: ' + err.message });
+  }
+});
+
 module.exports = router;
+

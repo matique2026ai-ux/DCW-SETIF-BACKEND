@@ -129,38 +129,48 @@ router.post('/login', async (req, res) => {
     const role = ROLE_MAP[u.roleId] || 'inspector';
 
     // 1️⃣ Device Security & Anti-Spoofing Check for Inspectors (Role 4):
-    if (u.roleId === 4 && incomingDeviceId) {
-      if (!u.deviceId) {
-        // First-time enrollment: Bind this device to the inspector
-        try {
-          await db.query(
-            pg
-              ? `UPDATE "UtilisateursSysteme" SET "DeviceId" = $1, "DeviceName" = $2 WHERE "Id" = $3`
-              : `UPDATE UtilisateursSysteme SET DeviceId = ?, DeviceName = ? WHERE Id = ?`,
-            [incomingDeviceId, incomingDeviceName || 'هاتف مفتش معتمد', u.id]
-          );
-          u.deviceId = incomingDeviceId;
-        } catch (devErr) {
-          console.error('Device enrollment error:', devErr.message);
-        }
-      } else if (u.deviceId !== incomingDeviceId) {
-        // Check for admin emergency override code
-        if (adminOverride === 'admin123' || adminOverride === 'DCW-OVERRIDE') {
+    if (u.roleId === 4) {
+      if (u.deviceId && !incomingDeviceId) {
+        return res.status(403).json({
+          error: 'تنبيه أمني: هذا الحساب مخصص للعمل الميداني ومقترن بهاتف معتمد فقط. يمنع تسجيل الدخول من متصفح غير معرّف أو جهاز مجهول الهوية.',
+          isDeviceMismatch: true,
+          boundDeviceId: u.deviceId,
+        });
+      }
+
+      if (incomingDeviceId) {
+        if (!u.deviceId) {
+          // First-time enrollment: Bind this device to the inspector
           try {
             await db.query(
               pg
                 ? `UPDATE "UtilisateursSysteme" SET "DeviceId" = $1, "DeviceName" = $2 WHERE "Id" = $3`
                 : `UPDATE UtilisateursSysteme SET DeviceId = ?, DeviceName = ? WHERE Id = ?`,
-              [incomingDeviceId, incomingDeviceName || 'هاتف معتمد (محدث بترخيص)', u.id]
+              [incomingDeviceId, incomingDeviceName || 'هاتف مفتش معتمد', u.id]
             );
             u.deviceId = incomingDeviceId;
-          } catch (_) {}
-        } else {
-          return res.status(403).json({
-            error: 'تنبيه أمني: هذا الحساب مقترن بهاتف معتمد آخر لمنع انتحال الشخصية أو التسجيل من أجهزة مجهولة. إذا قمت بتغيير هاتفك، يرجى التواصل مع مدير النظام التقني (Admin) لإعادة تعيين الجهاز.',
-            isDeviceMismatch: true,
-            boundDeviceId: u.deviceId,
-          });
+          } catch (devErr) {
+            console.error('Device enrollment error:', devErr.message);
+          }
+        } else if (u.deviceId !== incomingDeviceId) {
+          // Check for admin emergency override code
+          if (adminOverride === 'admin123' || adminOverride === 'DCW-OVERRIDE') {
+            try {
+              await db.query(
+                pg
+                  ? `UPDATE "UtilisateursSysteme" SET "DeviceId" = $1, "DeviceName" = $2 WHERE "Id" = $3`
+                  : `UPDATE UtilisateursSysteme SET DeviceId = ?, DeviceName = ? WHERE Id = ?`,
+                [incomingDeviceId, incomingDeviceName || 'هاتف معتمد (محدث بترخيص)', u.id]
+              );
+              u.deviceId = incomingDeviceId;
+            } catch (_) {}
+          } else {
+            return res.status(403).json({
+              error: 'تنبيه أمني: هذا الحساب مقترن بهاتف معتمد آخر لمنع انتحال الشخصية أو التسجيل من أجهزة مجهولة. إذا قمت بتغيير هاتفك، يرجى التواصل مع مدير النظام التقني (Admin) لإعادة تعيين الجهاز.',
+              isDeviceMismatch: true,
+              boundDeviceId: u.deviceId,
+            });
+          }
         }
       }
     }

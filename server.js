@@ -17,6 +17,7 @@ const deductionRoutes = require('./src/routes/deductions');
 const justificationRoutes = require('./src/routes/justifications');
 const inquiryRoutes = require('./src/routes/inquiries');
 const settingRoutes = require('./src/routes/settings');
+const meansRoutes = require('./src/routes/means');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -210,6 +211,7 @@ app.use('/api/deductions', deductionRoutes);
 app.use('/api/justifications', justificationRoutes);
 app.use('/api/inquiries', inquiryRoutes);
 app.use('/api/settings', settingRoutes);
+app.use('/api/means', meansRoutes);
 
 // Reset / Clean test attendance for fresh live demonstration
 app.all(['/api/clean-test-data', '/clean-test-data', '/api/settings/clean-test-data'], async (req, res) => {
@@ -402,6 +404,90 @@ async function ensureTables() {
       "Description" TEXT,
       "UpdatedAt" TIMESTAMP DEFAULT NOW()
     )` : null,
+
+    pg ? `CREATE TABLE IF NOT EXISTS "TrackerVehicles" (
+      "Id" SERIAL PRIMARY KEY,
+      "Matricule" VARCHAR(50) NOT NULL UNIQUE,
+      "Model" VARCHAR(150) NOT NULL,
+      "Type" VARCHAR(100) DEFAULT 'سيارة رقابة وتدخل',
+      "FuelLevel" INT DEFAULT 85,
+      "Kilometrage" INT DEFAULT 50000,
+      "Status" VARCHAR(50) DEFAULT 'disponible',
+      "AssignedService" VARCHAR(200),
+      "AssignedDriver" VARCHAR(200),
+      "LastPosition" VARCHAR(200),
+      "CreatedAt" TIMESTAMP DEFAULT NOW()
+    )` : `CREATE TABLE IF NOT EXISTS TrackerVehicles (
+      Id INT IDENTITY(1,1) PRIMARY KEY,
+      Matricule VARCHAR(50) NOT NULL UNIQUE,
+      Model VARCHAR(150) NOT NULL,
+      Type VARCHAR(100) DEFAULT 'سيارة رقابة وتدخل',
+      FuelLevel INT DEFAULT 85,
+      Kilometrage INT DEFAULT 50000,
+      Status VARCHAR(50) DEFAULT 'disponible',
+      AssignedService VARCHAR(200),
+      AssignedDriver VARCHAR(200),
+      LastPosition VARCHAR(200),
+      CreatedAt DATETIME DEFAULT GETDATE()
+    )`,
+
+    pg ? `CREATE TABLE IF NOT EXISTS "TrackerVehicleMissions" (
+      "Id" SERIAL PRIMARY KEY,
+      "VehicleId" INT NOT NULL,
+      "DriverName" VARCHAR(200) NOT NULL,
+      "EmployeeId" INT,
+      "Destination" VARCHAR(300) NOT NULL,
+      "MissionPurpose" TEXT,
+      "DepartureTime" TIMESTAMP DEFAULT NOW(),
+      "ReturnTime" TIMESTAMP,
+      "Status" VARCHAR(50) DEFAULT 'active',
+      "DepartureKm" INT DEFAULT 0,
+      "ReturnKm" INT,
+      "FuelDeparture" INT DEFAULT 85,
+      "FuelReturn" INT,
+      "Notes" TEXT,
+      "CreatedAt" TIMESTAMP DEFAULT NOW()
+    )` : `CREATE TABLE IF NOT EXISTS TrackerVehicleMissions (
+      Id INT IDENTITY(1,1) PRIMARY KEY,
+      VehicleId INT NOT NULL,
+      DriverName VARCHAR(200) NOT NULL,
+      EmployeeId INT,
+      Destination VARCHAR(300) NOT NULL,
+      MissionPurpose TEXT,
+      DepartureTime DATETIME DEFAULT GETDATE(),
+      ReturnTime DATETIME,
+      Status VARCHAR(50) DEFAULT 'active',
+      DepartureKm INT DEFAULT 0,
+      ReturnKm INT,
+      FuelDeparture INT DEFAULT 85,
+      FuelReturn INT,
+      Notes TEXT,
+      CreatedAt DATETIME DEFAULT GETDATE()
+    )`,
+
+    pg ? `CREATE TABLE IF NOT EXISTS "TrackerEquipments" (
+      "Id" SERIAL PRIMARY KEY,
+      "Designation" VARCHAR(300) NOT NULL,
+      "Code" VARCHAR(50) UNIQUE,
+      "TotalQuantity" INT DEFAULT 1,
+      "InServiceQuantity" INT DEFAULT 1,
+      "ReserveQuantity" INT DEFAULT 0,
+      "Status" VARCHAR(50) DEFAULT 'conforme',
+      "AssignedTo" VARCHAR(200) DEFAULT 'فرق الرقابة وقمع الغش',
+      "LastCheckedDate" DATE DEFAULT CURRENT_DATE,
+      "CreatedAt" TIMESTAMP DEFAULT NOW()
+    )` : `CREATE TABLE IF NOT EXISTS TrackerEquipments (
+      Id INT IDENTITY(1,1) PRIMARY KEY,
+      Designation VARCHAR(300) NOT NULL,
+      Code VARCHAR(50) UNIQUE,
+      TotalQuantity INT DEFAULT 1,
+      InServiceQuantity INT DEFAULT 1,
+      ReserveQuantity INT DEFAULT 0,
+      Status VARCHAR(50) DEFAULT 'conforme',
+      AssignedTo VARCHAR(200) DEFAULT 'فرق الرقابة وقمع الغش',
+      LastCheckedDate DATE,
+      CreatedAt DATETIME DEFAULT GETDATE()
+    )`,
   ];
 
   for (const sql of tables) {
@@ -694,12 +780,73 @@ async function seedPrograms() {
   }
 }
 
+async function seedMeansData() {
+  if (!isPostgres()) return;
+  const db = await getConnection();
+
+  try {
+    // 1. Seed official vehicle fleet if empty
+    const vehCount = await db.query('SELECT COUNT(*) as count FROM "TrackerVehicles"');
+    if (parseInt(vehCount[0]?.count || '0', 10) === 0) {
+      const defaultVehicles = [
+        { matricule: '00452-124-19', model: 'Dacia Duster 4x4 (البيضاء)', type: 'تدخل سريع', fuel: 90, km: 64200, status: 'disponible', service: 'مصلحة حماية المستهلك وقمع الغش', driver: 'فرقة التدخل السريع' },
+        { matricule: '01892-123-19', model: 'Dacia Duster 4x4 (الرمادية)', type: 'تحقيقات اقتصادية', fuel: 75, km: 78500, status: 'en_mission', service: 'مصلحة المنافسة والتحقيقات الاقتصادية', driver: 'فرقة التحقيقات والفوترة' },
+        { matricule: '03410-122-19', model: 'Peugeot Partner', type: 'رقابة تجارية', fuel: 85, km: 112000, status: 'disponible', service: 'مصلحة المنافسة والتحقيقات الاقتصادية', driver: 'فرقة مراقبة الأسعار' },
+        { matricule: '04120-121-19', model: 'Peugeot Partner', type: 'مفتشية إقليمية', fuel: 60, km: 98000, status: 'disponible', service: 'المفتشية الإقليمية بعين ولمان', driver: 'المفتشية الإقليمية بعين ولمان' },
+        { matricule: '07650-120-19', model: 'Renault Symbol', type: 'إداري ووسائل', fuel: 95, km: 51000, status: 'disponible', service: 'مصلحة الإدارة والوسائل', driver: 'مصلحة الإدارة والوسائل' },
+        { matricule: '08910-119-19', model: 'Renault Symbol', type: 'مفتشية إقليمية', fuel: 70, km: 89000, status: 'disponible', service: 'المفتشية الإقليمية ببوقاعة', driver: 'المفتشية الإقليمية ببوقاعة' },
+        { matricule: '10230-118-19', model: 'Hyundai Accent', type: 'مراقبة حدودية', fuel: 80, km: 124000, status: 'disponible', service: 'المفتشية الحدودية لمراقبة الجودة', driver: 'مفتشية مطار 8 ماي' },
+        { matricule: '11540-117-19', model: 'Peugeot 301', type: 'صيانة دورية', fuel: 50, km: 145000, status: 'en_maintenance', service: 'مصلحة الإدارة والوسائل', driver: 'ورشة الصيانة المعتمدة' },
+        { matricule: '01200-125-19', model: 'Toyota Hilux 4x4', type: 'سحب عينات CACQE', fuel: 80, km: 62000, status: 'en_mission', service: 'مصلحة حماية المستهلك وقمع الغش', driver: 'فرقة التحاليل والمطابقة' },
+        { matricule: '05430-120-19', model: 'Dacia Logan', type: 'ملحقة تجارية', fuel: 65, km: 73000, status: 'disponible', service: 'الملحقة التجارية بعين آزال', driver: 'الملحقة التجارية بعين آزال' },
+        { matricule: '06780-122-19', model: 'Peugeot Partner', type: 'ملحقة تجارية', fuel: 80, km: 88000, status: 'disponible', service: 'الملحقة التجارية بعين الكبيرة', driver: 'الملحقة التجارية بعين الكبيرة' },
+        { matricule: '09450-123-19', model: 'Renault Express', type: 'ملحقة تجارية', fuel: 75, km: 92000, status: 'disponible', service: 'الملحقة التجارية بعين أرنات', driver: 'الملحقة التجارية بعين أرنات' },
+      ];
+
+      for (const v of defaultVehicles) {
+        await db.query(
+          `INSERT INTO "TrackerVehicles" ("Matricule", "Model", "Type", "FuelLevel", "Kilometrage", "Status", "AssignedService", "AssignedDriver")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           ON CONFLICT ("Matricule") DO NOTHING`,
+          [v.matricule, v.model, v.type, v.fuel, v.km, v.status, v.service, v.driver]
+        );
+      }
+      console.log('✅ Official vehicle fleet seeded in TrackerVehicles');
+    }
+
+    // 2. Seed regulatory inspection equipments if empty
+    const eqCount = await db.query('SELECT COUNT(*) as count FROM "TrackerEquipments"');
+    if (parseInt(eqCount[0]?.count || '0', 10) === 0) {
+      const defaultEquipments = [
+        { name: 'حقائب التفتيش الميداني وقمع الغش (Mallettes de contrôle)', code: 'EQ-MALLETTE-01', total: 42, inService: 38, reserve: 4, status: 'conforme', assigned: 'فرق قمع الغش والمفتشيات الإقليمية' },
+        { name: 'أجهزة القياس الحراري بالأشعة تحت الحمراء (Thermomètres laser)', code: 'EQ-THERM-02', total: 58, inService: 52, reserve: 6, status: 'conforme', assigned: 'فرق الرقابة وسلسلة التبريد' },
+        { name: 'أجهزة قياس الحموضة وجودة الزيوت (Testeurs d\'huile & pH-mètres)', code: 'EQ-TEST-03', total: 35, inService: 30, reserve: 5, status: 'conforme', assigned: 'فرقة المطابقة والمطاعم' },
+        { name: 'الأجهزة اللوحية وبصمات الـ GPS الميدانية المتنقلة', code: 'EQ-TAB-04', total: 267, inService: 250, reserve: 17, status: 'conforme', assigned: 'كافة المفتشين الميدانيين' },
+        { name: 'أختام الضبطية القضائية والشمع الأحمر للغلق الإداري', code: 'EQ-SEAL-05', total: 120, inService: 110, reserve: 10, status: 'conforme', assigned: 'رؤساء الفرق الرقابية والتحقيق' },
+      ];
+
+      for (const eq of defaultEquipments) {
+        await db.query(
+          `INSERT INTO "TrackerEquipments" ("Designation", "Code", "TotalQuantity", "InServiceQuantity", "ReserveQuantity", "Status", "AssignedTo")
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT ("Code") DO NOTHING`,
+          [eq.name, eq.code, eq.total, eq.inService, eq.reserve, eq.status, eq.assigned]
+        );
+      }
+      console.log('✅ Inspection equipments seeded in TrackerEquipments');
+    }
+  } catch (e) {
+    console.log('seedMeansData notice:', e.message);
+  }
+}
+
 async function start() {
   try {
     await ensureTables();
     await seedEmployees();
     await seedUsers();
     await seedPrograms();
+    await seedMeansData();
     app.listen(PORT, () => {
       console.log(`🚀 DRH-SETIF-TRACKER API v3.0 running on http://localhost:${PORT}`);
     });
