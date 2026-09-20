@@ -1401,16 +1401,6 @@ async function start() {
 
     await ensureTables();
     await seedUsers();
-    // Auto-purge any leftover test data on startup for clean slate
-    const db = await getConnection();
-    const pg = isPostgres();
-    try {
-      await db.query(pg ? 'TRUNCATE TABLE "Employes" RESTART IDENTITY CASCADE' : 'DELETE FROM Employes');
-      await db.query(pg ? 'TRUNCATE TABLE "TrackerVisits" RESTART IDENTITY CASCADE' : 'DELETE FROM TrackerVisits');
-      await db.query(pg ? 'TRUNCATE TABLE "TrackerAttendance" RESTART IDENTITY CASCADE' : 'DELETE FROM TrackerAttendance');
-      await db.query(pg ? 'TRUNCATE TABLE "TrackerPrograms" RESTART IDENTITY CASCADE' : 'DELETE FROM TrackerPrograms');
-      await db.query(pg ? 'DELETE FROM "UtilisateursSysteme" WHERE "NomUtilisateur" != \'tracker_admin\'' : 'DELETE FROM UtilisateursSysteme WHERE NomUtilisateur != \'tracker_admin\'');
-    } catch (_) {}
   } catch (err) {
     console.error('⚠️ Startup database initialization warning:', err.message);
   }
