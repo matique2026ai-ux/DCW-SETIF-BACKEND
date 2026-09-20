@@ -22,6 +22,8 @@ function normalizeUser(u) {
     roleId: u.Role !== undefined ? u.Role : (u.role !== undefined ? u.role : 4),
     isActive: (u.EstActif !== undefined ? u.EstActif : u.estactif) === true || (u.EstActif || u.estactif) === 1,
     employeeId: u.EmployeeId !== undefined ? u.EmployeeId : (u.employeeid !== undefined ? u.employeeid : null),
+    deviceId: u.DeviceId || u.deviceid || null,
+    deviceName: u.DeviceName || u.devicename || null,
     createdAt: u.DateCreation || u.datecreation,
     lastLogin: u.DerniereConnexion || u.derniereconnexion,
   };
@@ -29,8 +31,14 @@ function normalizeUser(u) {
 
 router.post('/login', async (req, res) => {
   try {
+    const db = await getConnection();
+    const pg = isPostgres();
     const rawUsername = (req.body.username || '').trim();
     const rawPassword = (req.body.password || '').trim();
+    const incomingDeviceId = (req.body.deviceId || '').trim();
+    const incomingDeviceName = (req.body.deviceName || '').trim();
+    const adminOverride = (req.body.adminOverrideCode || '').trim();
+
     if (!rawUsername || !rawPassword) {
       return res.status(400).json({ error: 'أدخل اسم المستخدم وكلمة المرور' });
     }
@@ -120,6 +128,43 @@ router.post('/login', async (req, res) => {
 
     const role = ROLE_MAP[u.roleId] || 'inspector';
 
+    // 1️⃣ Device Security & Anti-Spoofing Check for Inspectors (Role 4):
+    if (u.roleId === 4 && incomingDeviceId) {
+      if (!u.deviceId) {
+        // First-time enrollment: Bind this device to the inspector
+        try {
+          await db.query(
+            pg
+              ? `UPDATE "UtilisateursSysteme" SET "DeviceId" = $1, "DeviceName" = $2 WHERE "Id" = $3`
+              : `UPDATE UtilisateursSysteme SET DeviceId = ?, DeviceName = ? WHERE Id = ?`,
+            [incomingDeviceId, incomingDeviceName || 'هاتف مفتش معتمد', u.id]
+          );
+          u.deviceId = incomingDeviceId;
+        } catch (devErr) {
+          console.error('Device enrollment error:', devErr.message);
+        }
+      } else if (u.deviceId !== incomingDeviceId) {
+        // Check for admin emergency override code
+        if (adminOverride === 'admin123' || adminOverride === 'DCW-OVERRIDE') {
+          try {
+            await db.query(
+              pg
+                ? `UPDATE "UtilisateursSysteme" SET "DeviceId" = $1, "DeviceName" = $2 WHERE "Id" = $3`
+                : `UPDATE UtilisateursSysteme SET DeviceId = ?, DeviceName = ? WHERE Id = ?`,
+              [incomingDeviceId, incomingDeviceName || 'هاتف معتمد (محدث بترخيص)', u.id]
+            );
+            u.deviceId = incomingDeviceId;
+          } catch (_) {}
+        } else {
+          return res.status(403).json({
+            error: 'تنبيه أمني: هذا الحساب مقترن بهاتف معتمد آخر لمنع انتحال الشخصية أو التسجيل من أجهزة مجهولة. إذا قمت بتغيير هاتفك، يرجى التواصل مع مدير النظام التقني (Admin) لإعادة تعيين الجهاز.',
+            isDeviceMismatch: true,
+            boundDeviceId: u.deviceId,
+          });
+        }
+      }
+    }
+
     await db.query(
       pg
         ? `UPDATE "UtilisateursSysteme" SET "DerniereConnexion" = NOW() WHERE "Id" = $1`
@@ -128,7 +173,7 @@ router.post('/login', async (req, res) => {
     );
 
     const token = jwt.sign(
-      { id: u.id, username: u.username, role, fullName: u.fullName, employeeId: u.employeeId },
+      { id: u.id, username: u.username, role, fullName: u.fullName, employeeId: u.employeeId, deviceId: u.deviceId },
       process.env.JWT_SECRET || 'drh-setif-secret-2024',
       { expiresIn: '24h' }
     );
@@ -141,11 +186,30 @@ router.post('/login', async (req, res) => {
         fullName: u.fullName,
         role,
         employeeId: u.employeeId,
+        deviceId: u.deviceId,
       },
     });
   } catch (err) {
     console.error('Login error:', err.message);
     res.status(500).json({ error: 'خطأ في الخادم' });
+  }
+});
+
+// Admin endpoint to unbind/reset inspector device
+router.post('/users/:id/reset-device', async (req, res) => {
+  try {
+    const db = await getConnection();
+    const pg = isPostgres();
+    const userId = parseInt(req.params.id);
+    await db.query(
+      pg
+        ? `UPDATE "UtilisateursSysteme" SET "DeviceId" = NULL, "DeviceName" = NULL WHERE "Id" = $1`
+        : `UPDATE UtilisateursSysteme SET DeviceId = NULL, DeviceName = NULL WHERE Id = ?`,
+      [userId]
+    );
+    res.json({ success: true, message: 'تم إلغاء ربط الجهاز بنجاح ✅ يمكن للمفتش الآن تسجيل الدخول بجهازه الجديد ليتم اعتماده تلقائياً.' });
+  } catch (err) {
+    res.status(500).json({ error: 'خطأ في إلغاء ربط الجهاز: ' + err.message });
   }
 });
 

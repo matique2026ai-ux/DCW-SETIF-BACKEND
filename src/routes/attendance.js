@@ -182,16 +182,16 @@ router.get('/delays-summary', async (req, res) => {
   }
 });
 
-// Official DCW Setif Headquarters & Regional Inspectorates
+// Official DCW Setif Headquarters & Regional Inspectorates (8 Official Locations)
 const OFFICIAL_HQS = [
-  { name: 'المقر الرئيسي لمديرية سطيف (حي المعبودة)', lat: 36.1912, lng: 5.4137, radiusMeters: 800 },
-  { name: 'المفتشية الحدودية بمطار 8 ماي 1945 (عين أرنات)', lat: 36.1780, lng: 5.3250, radiusMeters: 1000 },
-  { name: 'المفتشية الإقليمية للتجارة بالعلمة', lat: 36.1528, lng: 5.6908, radiusMeters: 800 },
-  { name: 'المفتشية الإقليمية للتجارة بعين ولمان', lat: 35.9189, lng: 5.2975, radiusMeters: 800 },
-  { name: 'المفتشية الإقليمية للتجارة ببوقاعة', lat: 36.3325, lng: 5.0886, radiusMeters: 800 },
-  { name: 'الملحقة التجارية بعين آزال', lat: 35.8450, lng: 5.4622, radiusMeters: 800 },
-  { name: 'الملحقة التجارية بعين الكبيرة', lat: 36.3650, lng: 5.4980, radiusMeters: 800 },
-  { name: 'الملحقة التجارية بعين أرنات', lat: 36.1850, lng: 5.3120, radiusMeters: 800 },
+  { id: 'hq_setif', name: 'المقر الرئيسي لمديرية سطيف (حي المعبودة)', lat: 36.1900575, lng: 5.3990134, radiusMeters: 600, isMain: true },
+  { id: 'insp_airport_arnat', name: 'المفتشية الحدودية بمطار 8 ماي 1945 (عين أرنات)', lat: 36.1781, lng: 5.3247, radiusMeters: 1200 },
+  { id: 'insp_eulma', name: 'المفتشية الإقليمية للتجارة بالعلمة', lat: 36.1554, lng: 5.6908, radiusMeters: 1000 },
+  { id: 'insp_ain_oulmene', name: 'المفتشية الإقليمية للتجارة بعين ولمان', lat: 35.9189, lng: 5.2978, radiusMeters: 1000 },
+  { id: 'insp_bougaa', name: 'المفتشية الإقليمية للتجارة ببوقاعة', lat: 36.3325, lng: 5.0886, radiusMeters: 1000 },
+  { id: 'annex_ain_azel', name: 'الملحقة التجارية بعين آزال', lat: 35.8686, lng: 5.4667, radiusMeters: 800 },
+  { id: 'annex_ain_kebira', name: 'الملحقة التجارية بعين الكبيرة', lat: 36.3639, lng: 5.5003, radiusMeters: 800 },
+  { id: 'annex_ain_arnat', name: 'الملحقة التجارية بعين أرنات', lat: 36.1833, lng: 5.3167, radiusMeters: 800 },
 ];
 
 function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
@@ -224,6 +224,34 @@ function findNearestHQ(lat, lng) {
   return nearest;
 }
 
+function isWithinOfficialGeofence(lat, lng) {
+  const nearest = findNearestHQ(lat, lng);
+  if (!nearest) return { isValid: false, nearest: null };
+  return {
+    isValid: nearest.distanceMeters <= nearest.radiusMeters,
+    nearest,
+  };
+}
+
+function getAlgeriaLocalTime() {
+  const now = new Date();
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  return new Date(utc + (3600000 * 1)); // UTC+1
+}
+
+function isWithinMorningWindow(dateObj) {
+  const hours = dateObj.getHours();
+  const mins = dateObj.getMinutes();
+  const totalMins = hours * 60 + mins;
+  // Legal morning window: 07:30 (450 mins) to 10:30 (630 mins)
+  return {
+    isValid: totalMins >= (7 * 60 + 30) && totalMins <= (10 * 60 + 30),
+    hours,
+    mins,
+    totalMins,
+  };
+}
+
 router.get('/map-data', async (req, res) => {
   try {
     const db = await getConnection();
@@ -251,10 +279,7 @@ router.get('/map-data', async (req, res) => {
            LEFT JOIN TrackerEmployeeAdmin a ON e.Id = a.EmployeeId
            WHERE e.EstActif = 1`
     );
-    const targetEmployees = allEmployees.filter(e => {
-      const s = (e.Service || e.service || '').toString();
-      return s && TARGET_DEPARTMENTS.some(d => s.includes(d));
-    });
+    const targetEmployees = allEmployees;
 
     const attendance = await db.query(
       pg
@@ -270,12 +295,25 @@ router.get('/map-data', async (req, res) => {
       [today]
     );
 
-    // Fetch active programs to link each inspector to their department/mission
+    // Fetch active programs with Description to link each inspector to their actual mission
     const programs = await db.query(
       pg
-        ? `SELECT "Id", "Title", "ServiceName", "TargetArea", "TargetType", "FocusPoints", "CreatedAt" FROM "TrackerPrograms" ORDER BY "CreatedAt" DESC`
-        : 'SELECT Id, Title, ServiceName, TargetArea, TargetType, FocusPoints, CreatedAt FROM TrackerPrograms ORDER BY CreatedAt DESC'
+        ? `SELECT "Id", "Title", "Description", "ServiceName", "TargetArea", "TargetType", "FocusPoints", "CreatedAt" FROM "TrackerPrograms" ORDER BY "CreatedAt" DESC`
+        : 'SELECT Id, Title, Description, ServiceName, TargetArea, TargetType, FocusPoints, CreatedAt FROM TrackerPrograms ORDER BY CreatedAt DESC'
     );
+
+    // Dynamic morning grace threshold from settings (default 08:45)
+    let graceTimeStr = '08:45';
+    try {
+      const settingRows = await db.query(
+        pg ? `SELECT "Value" FROM "TrackerSettings" WHERE "Key" = 'morning_grace_time'` : `SELECT [Value] FROM TrackerSettings WHERE [Key] = 'morning_grace_time'`
+      );
+      if (settingRows && settingRows.length > 0) {
+        graceTimeStr = settingRows[0].Value || settingRows[0].value || '08:45';
+      }
+    } catch (_) {}
+    const [gHour, gMin] = graceTimeStr.split(':').map(Number);
+    const GRACE_MINUTES = (isNaN(gHour) ? 8 : gHour) * 60 + (isNaN(gMin) ? 45 : gMin);
 
     const attendanceMap = {};
     for (const a of (attendance || [])) {
@@ -332,31 +370,31 @@ router.get('/map-data', async (req, res) => {
       const prenom = (emp.Prenom || emp.prenom || '').toString();
       const empName = nomAr ? `${nomAr} ${prenomAr}`.trim() : `${nom} ${prenom}`.trim();
 
-      // Find active program for this inspector
+      // Find active program specifically for this inspector:
+      // Search in Title AND Description (where leader and companion inspectors are registered)
       let activeProg = null;
       for (const p of (programs || [])) {
         const title = (p.Title || p.title || '').toString();
+        const desc = (p.Description || p.description || '').toString();
         const fp = (p.FocusPoints || p.focuspoints || '').toString();
-        const pDept = (p.ServiceName || p.servicename || '').toString();
-        const empDept = (emp.Service || emp.service || '').toString();
         const brigade = (emp.BrigadeName || emp.brigadename || '').toString();
 
-        if ((nomAr && title.includes(nomAr)) || (nom && title.toLowerCase().includes(nom.toLowerCase()))) {
+        const isNameMatched =
+          (nomAr && (title.includes(nomAr) || desc.includes(nomAr))) ||
+          (prenomAr && (title.includes(prenomAr) || desc.includes(prenomAr))) ||
+          (nom && (title.toLowerCase().includes(nom.toLowerCase()) || desc.toLowerCase().includes(nom.toLowerCase())));
+        const isBrigadeMatched = brigade && (title.includes(brigade) || desc.includes(brigade) || fp.includes(brigade));
+
+        if (isNameMatched || isBrigadeMatched) {
           activeProg = p;
           break;
-        }
-        if (brigade && (title.includes(brigade) || fp.includes(brigade))) {
-          activeProg = p;
-          break;
-        }
-        if (!activeProg && pDept && empDept && (empDept.includes(pDept) || pDept.includes(empDept))) {
-          activeProg = p;
         }
       }
 
       const activeProgramData = activeProg ? {
         id: activeProg.Id || activeProg.id,
         title: activeProg.Title || activeProg.title,
+        description: activeProg.Description || activeProg.description,
         serviceName: activeProg.ServiceName || activeProg.servicename,
         targetArea: activeProg.TargetArea || activeProg.targetarea,
         targetType: activeProg.TargetType || activeProg.targettype,
@@ -373,7 +411,7 @@ router.get('/map-data', async (req, res) => {
         const nearest = findNearestHQ(currentLat, currentLng);
         if (nearest) {
           distanceToHQ = nearest.distanceMeters;
-          if (nearest.distanceMeters <= (nearest.radiusMeters || 800) && empVisits.length === 0) {
+          if (nearest.distanceMeters <= (nearest.radiusMeters || 600) && empVisits.length === 0) {
             locationType = 'at_hq';
             hqName = nearest.name;
           } else {
@@ -382,6 +420,18 @@ router.get('/map-data', async (req, res) => {
           }
         } else {
           locationType = 'in_field';
+        }
+      }
+
+      // Calculate real live late minutes for today
+      let todayLateMinutes = 0;
+      if (att && att.CheckInTime) {
+        const d = new Date(att.CheckInTime);
+        const hours = d.getHours();
+        const mins = d.getMinutes();
+        const currentMins = hours * 60 + mins;
+        if (currentMins > GRACE_MINUTES) {
+          todayLateMinutes = currentMins - GRACE_MINUTES;
         }
       }
 
@@ -416,6 +466,7 @@ router.get('/map-data', async (req, res) => {
         activeProgram: activeProgramData,
         checkInTime: att ? att.CheckInTime : null,
         checkOutTime: att ? att.CheckOutTime : null,
+        lateMinutes: todayLateMinutes,
         latitude: currentLat,
         longitude: currentLng,
         checkInLatitude: allowLiveTracking && att ? att.CheckInLatitude : null,
@@ -439,10 +490,12 @@ router.post('/checkin', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     let jwtEmployeeId = null;
+    let jwtDeviceId = null;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       try {
         const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'drh-setif-secret-2024');
         jwtEmployeeId = decoded.employeeId || decoded.id;
+        jwtDeviceId = decoded.deviceId || null;
       } catch (_) {}
     }
 
@@ -452,7 +505,8 @@ router.post('/checkin', async (req, res) => {
       longitude, Longitude,
       location, locationName, LocationName,
       photo, Photo,
-      notes, Notes
+      notes, Notes,
+      deviceId, DeviceId
     } = req.body;
 
     const finalEmpId = employeeId || EmployeeId || jwtEmployeeId;
@@ -462,10 +516,30 @@ router.post('/checkin', async (req, res) => {
     const finalLng = longitude !== undefined ? longitude : Longitude;
     const finalPhoto = photo || Photo || null;
     const finalNotes = notes || Notes || null;
+    const finalDeviceId = deviceId || DeviceId || jwtDeviceId || null;
 
     const db = await getConnection();
     const pg = isPostgres();
     const today = getTodayAlgeria();
+
+    // 1️⃣ Device Security Verification (Anti-Spoofing):
+    if (finalDeviceId) {
+      const userRows = await db.query(
+        pg
+          ? `SELECT "Id", "DeviceId" FROM "UtilisateursSysteme" WHERE "EmployeeId" = $1`
+          : `SELECT Id, DeviceId FROM UtilisateursSysteme WHERE EmployeeId = ?`,
+        [finalEmpId]
+      );
+      if (userRows && userRows.length > 0) {
+        const boundDev = userRows[0].DeviceId || userRows[0].deviceid;
+        if (boundDev && boundDev !== finalDeviceId) {
+          return res.status(403).json({
+            error: 'تنبيه أمني: البصمة الجغرافية مرفوضة لأن الهاتف غير مطابق للجهاز المعتمد لهذا الحساب (Device Signature Mismatch).',
+            isDeviceMismatch: true,
+          });
+        }
+      }
+    }
 
     // Check existing attendance for today
     const existing = await db.query(
@@ -479,29 +553,68 @@ router.post('/checkin', async (req, res) => {
       return res.status(200).json({ success: true, message: 'الموظف مسجل حضوره بالفعل اليوم', alreadyCheckedIn: true });
     }
 
-    // Geofencing verification
-    let resolvedLocation = location || locationName || LocationName || 'مقر المديرية الولائية';
-    let isGeofenceValid = true;
+    // Fetch employee administrative status to check for special missions / night duty
+    const adminRows = await db.query(
+      pg
+        ? `SELECT "AdministrativeStatus", "BrigadeName" FROM "TrackerEmployeeAdmin" WHERE "EmployeeId" = $1`
+        : 'SELECT AdministrativeStatus, BrigadeName FROM TrackerEmployeeAdmin WHERE EmployeeId = ?',
+      [finalEmpId]
+    );
+    const empStatus = adminRows[0]?.AdministrativeStatus || adminRows[0]?.administrativestatus || 'active';
+    const brigadeName = (adminRows[0]?.BrigadeName || adminRows[0]?.brigadename || '').toString();
+    const isSpecialMission = empStatus === 'special_mission' || empStatus === 'mission' || empStatus === 'field_mission';
+    const isNightDuty = empStatus === 'special_mission' || brigadeName.includes('المداومة') || brigadeName.includes('المناوبة');
 
-    if (finalLat && finalLng) {
-      const nearestHQ = findNearestHQ(finalLat, finalLng);
-      if (nearestHQ) {
-        if (nearestHQ.distanceMeters <= nearestHQ.radiusMeters) {
-          resolvedLocation = nearestHQ.name;
-          isGeofenceValid = true;
-        } else {
-          // Check if employee has a field mission
-          resolvedLocation = `${nearestHQ.name} (نقطة انطلاق ميدانية - يبعد ${nearestHQ.distanceMeters}م)`;
-          isGeofenceValid = false;
-        }
+    // 3️⃣ Time Window Check (Algerian Local Time):
+    // Official morning window: 07:30 to 10:30 AM
+    const algeriaDate = getAlgeriaLocalTime();
+    const morningCheck = isWithinMorningWindow(algeriaDate);
+    const timeFormatted = `${morningCheck.hours.toString().padStart(2, '0')}:${morningCheck.mins.toString().padStart(2, '0')}`;
+
+    if (!morningCheck.isValid && !isNightDuty && !isSpecialMission) {
+      return res.status(403).json({
+        error: `عذراً، نافذة تسجيل الحضور الصباحي القانوني مفتوحة حصراً من 07:30 إلى 10:30 صباحاً (التوقيت الحالي: ${timeFormatted}). لا يُقبل التسجيل المسائي أو خارج الأوقات إلا بتكليف مداومة ليلية أو مهمة خاصة معتمدة مسبقاً.`,
+        currentTime: timeFormatted,
+        isTimeRestricted: true,
+      });
+    }
+
+    // 2️⃣ Strict GPS Geofence Verification (8 Official Locations):
+    if (finalLat === undefined || finalLat === null || finalLng === undefined || finalLng === null) {
+      return res.status(400).json({ error: 'البصمة الجغرافية (GPS) إلزامية لتسجيل الحضور. يرجى تفعيل الـ GPS في الهاتف/المتصفح.' });
+    }
+
+    const geofenceResult = isWithinOfficialGeofence(finalLat, finalLng);
+    let resolvedLocation = location || locationName || LocationName || 'مقر المديرية الولائية';
+    let isGeofenceValid = geofenceResult.isValid;
+
+    if (!isGeofenceValid) {
+      // If outside all 8 official sites, require an active external field mission
+      if (!isSpecialMission) {
+        const nearestName = geofenceResult.nearest ? geofenceResult.nearest.name : 'أقرب مقر رسمي';
+        const distMeters = geofenceResult.nearest ? geofenceResult.nearest.distanceMeters : 0;
+        const allowedRadius = geofenceResult.nearest ? geofenceResult.nearest.radiusMeters : 600;
+
+        return res.status(403).json({
+          error: `عذراً، أنت خارج النطاق الجغرافي للمقرات والمفتشيات الرسمية الـ 8 (${nearestName} يبعد عنك ${distMeters}م، والنطاق المسموح به ${allowedRadius}م). يُرفض تسجيل الحضور الصباحي قطعياً من خارج المقر إلا بوجود أمر مهمة خارجية معتمد.`,
+          nearestHQ: nearestName,
+          distanceMeters: distMeters,
+          allowedRadius: allowedRadius,
+          isGeofenceDenied: true,
+        });
       }
+      resolvedLocation = `${geofenceResult.nearest?.name || 'مقر رسمي'} (نقطة انطلاق ميدانية بموجب أمر مهمة خارجية)`;
+    } else {
+      resolvedLocation = geofenceResult.nearest.name;
     }
 
     await db.query(
       pg
-        ? `INSERT INTO "TrackerAttendance" ("EmployeeId","Date","CheckInTime","CheckInLocation","CheckInLatitude","CheckInLongitude","CheckInPhoto","Notes","IsCheckedOut") VALUES ($1,$2,NOW(),$3,$4,$5,$6,$7,false)`
-        : `INSERT INTO TrackerAttendance (EmployeeId,Date,CheckInTime,CheckInLocation,CheckInLatitude,CheckInLongitude,CheckInPhoto,Notes,IsCheckedOut) VALUES (?,?,GETDATE(),?,?,?,?,?,0)`,
-      [finalEmpId, today, resolvedLocation, finalLat || null, finalLng || null, finalPhoto, finalNotes]
+        ? `INSERT INTO "TrackerAttendance" ("EmployeeId","Date","CheckInTime","CheckInLocation","CheckInLatitude","CheckInLongitude","CheckInPhoto","Notes","DeviceId","IsWithinGeofence","IsCheckedOut")
+           VALUES ($1,$2,NOW(),$3,$4,$5,$6,$7,$8,$9,false)`
+        : `INSERT INTO TrackerAttendance (EmployeeId,Date,CheckInTime,CheckInLocation,CheckInLatitude,CheckInLongitude,CheckInPhoto,Notes,DeviceId,IsWithinGeofence,IsCheckedOut)
+           VALUES (?,?,GETDATE(),?,?,?,?,?,?,?,0)`,
+      [finalEmpId, today, resolvedLocation, finalLat, finalLng, finalPhoto, finalNotes, finalDeviceId, isGeofenceValid]
     );
 
     const result = await db.query(
@@ -514,9 +627,10 @@ router.post('/checkin', async (req, res) => {
     res.status(201).json({
       ...(result[0] || {}),
       success: true,
-      message: 'تم تسجيل الحضور والبصمة الجغرافية بنجاح ✅',
+      message: 'تم تسجيل الحضور والبصمة الجغرافية الرسمية بنجاح ✅',
       isGeofenceValid: isGeofenceValid,
       resolvedLocation: resolvedLocation,
+      time: timeFormatted,
     });
   } catch (err) {
     console.error('Checkin error:', err.message);
@@ -524,9 +638,10 @@ router.post('/checkin', async (req, res) => {
   }
 });
 
+// 4️⃣ Checkout Validation & Field Proof:
 router.post('/checkout', async (req, res) => {
   try {
-    const { employeeId, latitude, longitude, location, notes, shortShiftReason } = req.body;
+    const { employeeId, latitude, longitude, location, notes, shortShiftReason, earlyReason, visitsCount } = req.body;
     if (!employeeId) return res.status(400).json({ error: 'رقم الموظف مطلوب' });
 
     const db = await getConnection();
@@ -541,7 +656,7 @@ router.post('/checkout', async (req, res) => {
     );
 
     if (!existing || existing.length === 0) {
-      return res.status(400).json({ error: 'لم يتم تسجيل الحضور اليوم بعد' });
+      return res.status(400).json({ error: 'لم يتم العثور على تسجيل حضور نشط لليوم لتسجيل الانصراف' });
     }
 
     const checkInRecord = existing[0];
@@ -549,27 +664,74 @@ router.post('/checkout', async (req, res) => {
     const now = new Date();
     const elapsedMinutes = Math.round((now - checkInTime) / (1000 * 60));
 
-    // Resolve checkout location
+    const finalEarlyReason = (earlyReason || shortShiftReason || '').trim();
+
+    // 4.1 Anti Instant-Checkout (منع الخروج الفوري بعد دقيقة واحدة - اشتراط 30 دقيقة على الأقل أو تبرير استعجالي)
+    if (elapsedMinutes < 30 && !finalEarlyReason) {
+      return res.status(400).json({
+        error: `تنبيه أمني: مضت ${elapsedMinutes} دقيقة فقط على تسجيل الحضور. يُمنع الانصراف الفوري قبل إتمام 30 دقيقة على الأقل من الدوام أو تقديم تبرير رسمي للخروج الاستعجالي.`,
+        isEarlyCheckout: true,
+        elapsedMinutes: elapsedMinutes,
+        requiresReason: true,
+      });
+    }
+
+    // 4.2 Field Activity Check (اشتراط معاينات ميدانية أو تبرير في حال الانصراف قبل 4 ساعات)
+    const todayVisits = await db.query(
+      pg
+        ? `SELECT COUNT(*) as count FROM "TrackerVisits" WHERE "EmployeeId" = $1 AND "Date" = $2`
+        : `SELECT COUNT(*) as count FROM TrackerVisits WHERE EmployeeId = ? AND Date = ?`,
+      [employeeId, today]
+    );
+    const actualVisitsCount = parseInt(todayVisits[0]?.count || todayVisits[0]?.Count || 0);
+
+    if (elapsedMinutes < 240 && actualVisitsCount === 0 && !finalEarlyReason) {
+      return res.status(400).json({
+        error: `تنبيه إداري: لم يتم تسجيل أي زيارات أو معاينات ميدانية اليوم وانصرافك يسبق نصف الدوام القانوني (4 ساعات). يرجى تقديم تبرير رسمي للخروج المبكر للمصادقة عليه في سجل المستخدمين.`,
+        isEarlyCheckout: true,
+        elapsedMinutes: elapsedMinutes,
+        visitsCount: actualVisitsCount,
+        requiresReason: true,
+      });
+    }
+
+    // 4.3 Field Proof Location (موقع انتهاء المهمة الميدانية)
     let resolvedCheckoutLocation = location || 'موقع الانصراف الميداني';
     if (latitude && longitude) {
       const nearestHQ = findNearestHQ(latitude, longitude);
       if (nearestHQ && nearestHQ.distanceMeters <= nearestHQ.radiusMeters) {
         resolvedCheckoutLocation = `نهاية المهام في: ${nearestHQ.name}`;
       } else {
-        resolvedCheckoutLocation = `انصراف ميداني من موقع التفتيش (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
+        resolvedCheckoutLocation = `انصراف ميداني من موقع التفتيش (${parseFloat(latitude).toFixed(4)}, ${parseFloat(longitude).toFixed(4)})`;
       }
     }
 
     let finalNotes = notes || null;
-    if (elapsedMinutes < 30 && shortShiftReason) {
-      finalNotes = finalNotes ? `${finalNotes} | [انصراف مبكر استثنائي: ${shortShiftReason}]` : `[انصراف مبكر استثنائي: ${shortShiftReason}]`;
+    if (finalEarlyReason) {
+      finalNotes = finalNotes ? `${finalNotes} | [تبرير انصراف استثنائي: ${finalEarlyReason}]` : `[تبرير انصراف استثنائي: ${finalEarlyReason}]`;
     }
 
     await db.query(
       pg
-        ? `UPDATE "TrackerAttendance" SET "CheckOutTime"=NOW(),"CheckOutLocation"=$1,"CheckOutLatitude"=$2,"CheckOutLongitude"=$3,"Notes"=COALESCE($4,"Notes"),"IsCheckedOut"=true WHERE "EmployeeId"=$5 AND "Date"=$6 AND "IsCheckedOut"=false`
-        : `UPDATE TrackerAttendance SET CheckOutTime=GETDATE(),CheckOutLocation=?,CheckOutLatitude=?,CheckOutLongitude=?,Notes=COALESCE(?,Notes),IsCheckedOut=1 WHERE EmployeeId=? AND Date=? AND IsCheckedOut=0`,
-      [resolvedCheckoutLocation, latitude || null, longitude || null, finalNotes, employeeId, today]
+        ? `UPDATE "TrackerAttendance" 
+           SET "CheckOutTime" = NOW(),
+               "CheckOutLocation" = $1,
+               "CheckOutLatitude" = $2,
+               "CheckOutLongitude" = $3,
+               "Notes" = COALESCE($4, "Notes"),
+               "EarlyReason" = $5,
+               "IsCheckedOut" = true 
+           WHERE "EmployeeId" = $6 AND "Date" = $7 AND "IsCheckedOut" = false`
+        : `UPDATE TrackerAttendance 
+           SET CheckOutTime = GETDATE(),
+               CheckOutLocation = ?,
+               CheckOutLatitude = ?,
+               CheckOutLongitude = ?,
+               Notes = COALESCE(?, Notes),
+               EarlyReason = ?,
+               IsCheckedOut = 1 
+           WHERE EmployeeId = ? AND Date = ? AND IsCheckedOut = 0`,
+      [resolvedCheckoutLocation, latitude || null, longitude || null, finalNotes, finalEarlyReason || null, employeeId, today]
     );
 
     const result = await db.query(
@@ -582,12 +744,14 @@ router.post('/checkout', async (req, res) => {
     res.json({
       ...(result[0] || {}),
       success: true,
-      message: 'تم تسجيل الانصراف وحجب التتبع لحماية الخصوصية بنجاح ✅',
+      message: 'تم تسجيل الانصراف الميداني وتوثيق إثبات الموقع بنجاح ✅',
       elapsedMinutes: elapsedMinutes,
+      visitsCount: actualVisitsCount,
+      earlyReason: finalEarlyReason || null,
     });
   } catch (err) {
     console.error('Checkout error:', err.message);
-    res.status(500).json({ error: 'خطأ في تسجيل الانصراف' });
+    res.status(500).json({ error: 'خطأ في تسجيل الانصراف: ' + err.message });
   }
 });
 
