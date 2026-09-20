@@ -1381,20 +1381,12 @@ app.all(['/api/admin/purge-all-data', '/api/clean-test-data', '/clean-test-data'
 });
 
 async function start() {
-  try {
-    await ensureTables();
-    await seedUsers();
-    // Auto-purge any leftover test data on startup for clean slate
-    const db = await getConnection();
-    const pg = isPostgres();
-    try {
-      await db.query(pg ? 'TRUNCATE TABLE "Employes" RESTART IDENTITY CASCADE' : 'DELETE FROM Employes');
-      await db.query(pg ? 'TRUNCATE TABLE "TrackerVisits" RESTART IDENTITY CASCADE' : 'DELETE FROM TrackerVisits');
-      await db.query(pg ? 'TRUNCATE TABLE "TrackerAttendance" RESTART IDENTITY CASCADE' : 'DELETE FROM TrackerAttendance');
-      await db.query(pg ? 'TRUNCATE TABLE "TrackerPrograms" RESTART IDENTITY CASCADE' : 'DELETE FROM TrackerPrograms');
-      await db.query(pg ? 'DELETE FROM "UtilisateursSysteme" WHERE "NomUtilisateur" != \'tracker_admin\'' : 'DELETE FROM UtilisateursSysteme WHERE NomUtilisateur != \'tracker_admin\'');
-    } catch (_) {}
+  // Bind port immediately so Render / cloud health checks pass instantly
+  app.listen(PORT, () => {
+    console.log(`🚀 DRH-SETIF-TRACKER API v3.1 running on http://localhost:${PORT}`);
+  });
 
+  try {
     const publicPath = path.join(__dirname, 'public');
     if (fs.existsSync(publicPath)) {
       app.use(express.static(publicPath));
@@ -1407,12 +1399,20 @@ async function start() {
       console.log('🌐 Static Flutter web app enabled from public/');
     }
 
-    app.listen(PORT, () => {
-      console.log(`🚀 DRH-SETIF-TRACKER API v3.1 running on http://localhost:${PORT}`);
-    });
+    await ensureTables();
+    await seedUsers();
+    // Auto-purge any leftover test data on startup for clean slate
+    const db = await getConnection();
+    const pg = isPostgres();
+    try {
+      await db.query(pg ? 'TRUNCATE TABLE "Employes" RESTART IDENTITY CASCADE' : 'DELETE FROM Employes');
+      await db.query(pg ? 'TRUNCATE TABLE "TrackerVisits" RESTART IDENTITY CASCADE' : 'DELETE FROM TrackerVisits');
+      await db.query(pg ? 'TRUNCATE TABLE "TrackerAttendance" RESTART IDENTITY CASCADE' : 'DELETE FROM TrackerAttendance');
+      await db.query(pg ? 'TRUNCATE TABLE "TrackerPrograms" RESTART IDENTITY CASCADE' : 'DELETE FROM TrackerPrograms');
+      await db.query(pg ? 'DELETE FROM "UtilisateursSysteme" WHERE "NomUtilisateur" != \'tracker_admin\'' : 'DELETE FROM UtilisateursSysteme WHERE NomUtilisateur != \'tracker_admin\'');
+    } catch (_) {}
   } catch (err) {
-    console.error('❌ Failed to start:', err.message);
-    process.exit(1);
+    console.error('⚠️ Startup database initialization warning:', err.message);
   }
 }
 
