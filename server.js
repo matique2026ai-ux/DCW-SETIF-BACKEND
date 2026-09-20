@@ -1161,6 +1161,7 @@ async function ensureTables() {
 
       await db.query(`ALTER TABLE "UtilisateursSysteme" ADD COLUMN IF NOT EXISTS "DeviceId" VARCHAR(150)`);
       await db.query(`ALTER TABLE "UtilisateursSysteme" ADD COLUMN IF NOT EXISTS "DeviceName" VARCHAR(100)`);
+      await db.query(`ALTER TABLE "UtilisateursSysteme" ADD COLUMN IF NOT EXISTS "MasterPin" VARCHAR(50) DEFAULT '202600'`);
 
       await db.query(`ALTER TABLE "TrackerAttendance" ADD COLUMN IF NOT EXISTS "DeviceId" VARCHAR(150)`);
       await db.query(`ALTER TABLE "TrackerAttendance" ADD COLUMN IF NOT EXISTS "EarlyReason" TEXT`);
@@ -1178,6 +1179,7 @@ async function ensureTables() {
 
       await db.query(`IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UtilisateursSysteme') AND name = 'DeviceId') ALTER TABLE UtilisateursSysteme ADD DeviceId NVARCHAR(150) NULL`);
       await db.query(`IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UtilisateursSysteme') AND name = 'DeviceName') ALTER TABLE UtilisateursSysteme ADD DeviceName NVARCHAR(100) NULL`);
+      await db.query(`IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UtilisateursSysteme') AND name = 'MasterPin') ALTER TABLE UtilisateursSysteme ADD MasterPin NVARCHAR(50) DEFAULT '202600' NULL`);
 
       await db.query(`IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('TrackerAttendance') AND name = 'DeviceId') ALTER TABLE TrackerAttendance ADD DeviceId NVARCHAR(150) NULL`);
       await db.query(`IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('TrackerAttendance') AND name = 'EarlyReason') ALTER TABLE TrackerAttendance ADD EarlyReason NVARCHAR(MAX) NULL`);

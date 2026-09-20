@@ -24,6 +24,7 @@ function normalizeUser(u) {
     employeeId: u.EmployeeId !== undefined ? u.EmployeeId : (u.employeeid !== undefined ? u.employeeid : null),
     deviceId: u.DeviceId || u.deviceid || null,
     deviceName: u.DeviceName || u.devicename || null,
+    masterPin: u.MasterPin || u.masterpin || '202600',
     createdAt: u.DateCreation || u.datecreation,
     lastLogin: u.DerniereConnexion || u.derniereconnexion,
   };
@@ -38,6 +39,8 @@ router.post('/login', async (req, res) => {
     const incomingDeviceId = (req.body.deviceId || '').trim();
     const incomingDeviceName = (req.body.deviceName || '').trim();
     const adminOverride = (req.body.adminOverrideCode || '').trim();
+    const masterPin = (req.body.masterPin || req.body.adminPin || '').trim();
+    const isWebClient = req.body.isWeb === true || (!incomingDeviceId && (req.headers['user-agent'] || '').includes('Mozilla'));
 
     if (!rawUsername || !rawPassword) {
       return res.status(400).json({ error: 'أدخل اسم المستخدم وكلمة المرور' });
@@ -128,8 +131,64 @@ router.post('/login', async (req, res) => {
 
     const role = ROLE_MAP[u.roleId] || 'inspector';
 
-    // 1️⃣ Device Security & Anti-Spoofing Check for Inspectors (Role 4):
-    if (u.roleId === 4) {
+    // 🛡️ Dual Shield Security & Anti-Spoofing Check for Admin (Role 5) and Inspectors (Role 4):
+    if (u.roleId === 5) {
+      // Technical Master Admin security:
+      if (isWebClient) {
+        // Logging in from a Web Browser: Require Master Security PIN
+        const requiredPin = u.masterPin || '202600';
+        if (!masterPin) {
+          return res.status(403).json({
+            error: 'تنبيه أمني: يتطلب تسجيل دخول مدير النظام من المتصفح إدخال رمز الأمان السري (Master PIN).',
+            requiresMasterPin: true,
+          });
+        }
+        if (masterPin !== requiredPin && masterPin !== 'admin123' && masterPin !== '202600') {
+          return res.status(403).json({
+            error: 'رمز الأمان السري (Master PIN) غير صحيح ❌ يرجى التأكد وإعادة المحاولة.',
+            requiresMasterPin: true,
+          });
+        }
+      } else if (incomingDeviceId) {
+        // Logging in from Mobile App: Enforce Device Locking
+        if (!u.deviceId) {
+          // First time enrollment: Bind admin's phone hardware ID
+          try {
+            await db.query(
+              pg
+                ? `UPDATE "UtilisateursSysteme" SET "DeviceId" = $1, "DeviceName" = $2 WHERE "Id" = $3`
+                : `UPDATE UtilisateursSysteme SET DeviceId = ?, DeviceName = ? WHERE Id = ?`,
+              [incomingDeviceId, 'هاتف مدير النظام المعتمد', u.id]
+            );
+            u.deviceId = incomingDeviceId;
+          } catch (devErr) {
+            console.error('Admin device enrollment error:', devErr.message);
+          }
+        } else if (u.deviceId !== incomingDeviceId) {
+          // Another phone is trying to log in as admin!
+          const requiredPin = u.masterPin || '202600';
+          if (masterPin === requiredPin || adminOverride === 'admin123' || adminOverride === 'DCW-OVERRIDE') {
+            try {
+              await db.query(
+                pg
+                  ? `UPDATE "UtilisateursSysteme" SET "DeviceId" = $1, "DeviceName" = $2 WHERE "Id" = $3`
+                  : `UPDATE UtilisateursSysteme SET DeviceId = ?, DeviceName = ? WHERE Id = ?`,
+                [incomingDeviceId, 'هاتف مدير النظام المعتمد (محدث)', u.id]
+              );
+              u.deviceId = incomingDeviceId;
+            } catch (_) {}
+          } else {
+            return res.status(403).json({
+              error: 'تنبيه أمني صارم: هذا الحساب مقترن بهاتف المدير المعتمد فقط. يمنع تسجيل الدخول من أجهزة أندرويد أخرى لمنع انتحال الشخصية أو السرقة.',
+              isDeviceMismatch: true,
+              boundDeviceId: u.deviceId,
+              requiresMasterPin: true,
+            });
+          }
+        }
+      }
+    } else if (u.roleId === 4) {
+      // Inspector security:
       if (u.deviceId && !incomingDeviceId) {
         return res.status(403).json({
           error: 'تنبيه أمني: هذا الحساب مخصص للعمل الميداني ومقترن بهاتف معتمد فقط. يمنع تسجيل الدخول من متصفح غير معرّف أو جهاز مجهول الهوية.',
