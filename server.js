@@ -143,8 +143,7 @@ app.use('/api/programs', programRoutes);
 app.use('/api/attendance', attendanceRoutes);
 
 // Direct User Deletion Endpoint Handler (Supports DELETE & POST fallbacks across routes)
-app.all(['/api/auth/users/:id', '/api/users/:id', '/api/auth/users/:id/delete', '/api/users/:id/delete'], async (req, res) => {
-  if (req.method !== 'DELETE' && req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+app.delete(['/api/auth/users/:id', '/api/users/:id'], async (req, res) => {
   try {
     const userId = parseInt(req.params.id, 10);
     if (!userId || isNaN(userId)) {
@@ -180,6 +179,91 @@ app.all(['/api/auth/users/:id', '/api/users/:id', '/api/auth/users/:id/delete', 
   } catch (err) {
     console.error('Delete user direct error:', err.message);
     res.status(500).json({ error: 'خطأ أثناء حذف الحساب: ' + err.message });
+  }
+});
+
+// Direct User Update Handler (Supports PUT & POST for user details, role, and active/suspended status)
+app.all(['/api/auth/users/:id', '/api/users/:id', '/api/auth/users/:id/update', '/api/users/:id/update'], async (req, res, next) => {
+  if (req.method === 'DELETE') return next();
+  if (req.method !== 'PUT' && req.method !== 'POST' && req.method !== 'PATCH') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  try {
+    const userId = parseInt(req.params.id, 10);
+    const { fullName, role, isActive, employeeId } = req.body;
+    const db = await getConnection();
+    const pg = isPostgres();
+
+    const REVERSE_ROLE_MAP = {
+      director: 1,
+      head_of_department: 2,
+      bureau_chief: 3,
+      inspector: 4,
+      admin: 5,
+    };
+    const dbRole = typeof role === 'number' ? role : (REVERSE_ROLE_MAP[role] || 4);
+    const activeVal = isActive === true || isActive === 1;
+
+    const updateQuery = pg
+      ? `UPDATE "UtilisateursSysteme"
+         SET "NomComplet" = $1, "Role" = $2, "EstActif" = $3, "EmployeeId" = $4
+         WHERE "Id" = $5 OR "EmployeeId" = $5`
+      : `UPDATE UtilisateursSysteme
+         SET NomComplet = ?, Role = ?, EstActif = ?, EmployeeId = ?
+         WHERE Id = ? OR EmployeeId = ?`;
+
+    await db.query(updateQuery, pg ? [fullName, dbRole, activeVal, employeeId || null, userId] : [fullName, dbRole, activeVal, employeeId || null, userId, userId]);
+
+    res.json({ success: true, message: 'تم تحديث بيانات وتجميد/تفعيل الحساب بنجاح ✅' });
+  } catch (err) {
+    console.error('Update user direct error:', err.message);
+    res.status(500).json({ error: 'خطأ في تحديث بيانات الحساب: ' + err.message });
+  }
+});
+
+// Direct Password Reset Endpoint Handler
+app.all(['/api/auth/users/:id/reset-password', '/api/users/:id/reset-password'], async (req, res) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.trim().length < 4) {
+      return res.status(400).json({ error: 'يجب ألا تقل كلمة المرور الجديدة عن 4 أحرف' });
+    }
+
+    const db = await getConnection();
+    const pg = isPostgres();
+    const hash = await bcrypt.hash(newPassword.trim(), 10);
+
+    const updateQuery = pg
+      ? `UPDATE "UtilisateursSysteme" SET "MotDePasseHash" = $1 WHERE "Id" = $2 OR "EmployeeId" = $2`
+      : `UPDATE UtilisateursSysteme SET MotDePasseHash = ? WHERE Id = ? OR EmployeeId = ?`;
+
+    await db.query(updateQuery, pg ? [hash, userId] : [hash, userId, userId]);
+
+    res.json({ success: true, message: 'تم إعادة تعيين كلمة المرور بنجاح ✅' });
+  } catch (err) {
+    console.error('Reset password direct error:', err.message);
+    res.status(500).json({ error: 'خطأ أثناء إعادة تعيين كلمة المرور: ' + err.message });
+  }
+});
+
+// Direct Device Reset Endpoint Handler (Unbind device from inspector)
+app.all(['/api/auth/users/:id/reset-device', '/api/users/:id/reset-device'], async (req, res) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    const db = await getConnection();
+    const pg = isPostgres();
+
+    const updateQuery = pg
+      ? `UPDATE "UtilisateursSysteme" SET "DeviceId" = NULL, "DeviceName" = NULL WHERE "Id" = $1 OR "EmployeeId" = $1`
+      : `UPDATE UtilisateursSysteme SET DeviceId = NULL, DeviceName = NULL WHERE Id = ? OR EmployeeId = ?`;
+
+    await db.query(updateQuery, pg ? [userId] : [userId, userId]);
+
+    res.json({ success: true, message: 'تم فك اقتران الهاتف بالبصمة الرقمية بنجاح ✅' });
+  } catch (err) {
+    console.error('Reset device direct error:', err.message);
+    res.status(500).json({ error: 'خطأ أثناء إعادة تعيين جهاز المستخدم: ' + err.message });
   }
 });
 
