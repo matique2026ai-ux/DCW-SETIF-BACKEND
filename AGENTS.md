@@ -102,7 +102,11 @@
 
 ## 🌐 روابط وخطافات النشر السحابي (Render Deploy Hooks):
 
-* **رابط إعادة النشر المباشر لخادم Render (Deploy Hook):**
+* **رابط إعادة نشر سيرفر الـ API والبيانات (Backend Service Hook - drh-setif-api):**
+  ```powershell
+  curl.exe -X POST "https://api.render.com/deploy/srv-daiqf167bikc739mt7lg?key=B2bktUL4jYM"
+  ```
+* **رابط إعادة نشر واجهة الويب (Frontend Web App Hook - DCW-SETIF-TRACKER):**
   ```powershell
   curl.exe -X POST "https://api.render.com/deploy/srv-dairbhdg1s2s738fig10?key=GLgWofYjMBE"
   ```

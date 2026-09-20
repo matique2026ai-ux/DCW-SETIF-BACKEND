@@ -636,8 +636,7 @@ app.get(['/api/reports/inspection-summary', '/api/inspection-summary'], async (r
                   ta."CheckInLatitude", ta."CheckInLongitude",
                   ta."CheckOutLatitude", ta."CheckOutLongitude",
                   ta."CheckInLocation", ta."CheckOutLocation",
-                  ta."IsCheckedOut", ta."IsWithinGeofence",
-                  ta."EarlyReason", ta."LateMinutes",
+                  ta."IsCheckedOut", ta."Notes",
                   e."NomAr", e."PrenomAr", e."Nom", e."Prenom",
                   e."Service", e."NumeroMatricule"
            FROM "TrackerAttendance" ta
