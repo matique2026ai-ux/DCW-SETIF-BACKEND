@@ -142,6 +142,47 @@ app.use('/api/employees', employeeRoutes);
 app.use('/api/programs', programRoutes);
 app.use('/api/attendance', attendanceRoutes);
 
+// Direct User Deletion Endpoint Handler (Supports DELETE & POST fallbacks across routes)
+app.all(['/api/auth/users/:id', '/api/users/:id', '/api/auth/users/:id/delete', '/api/users/:id/delete'], async (req, res) => {
+  if (req.method !== 'DELETE' && req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const userId = parseInt(req.params.id, 10);
+    if (!userId || isNaN(userId)) {
+      return res.status(400).json({ error: 'معرف المستخدم غير صحيح' });
+    }
+
+    const db = await getConnection();
+    const pg = isPostgres();
+
+    // Check target user
+    const users = await db.query(
+      pg
+        ? 'SELECT "Id", "NomUtilisateur" FROM "UtilisateursSysteme" WHERE "Id" = $1'
+        : 'SELECT Id, NomUtilisateur FROM UtilisateursSysteme WHERE Id = ?',
+      [userId]
+    );
+
+    if (users && users.length > 0) {
+      const username = (users[0].NomUtilisateur || users[0].nomutilisateur || '').toLowerCase();
+      if (username === 'tracker_admin') {
+        return res.status(400).json({ error: 'لا يمكن حذف الحساب الرئيسي لمدير النظام' });
+      }
+    }
+
+    // Perform deletion safely
+    const deleteQuery = pg
+      ? 'DELETE FROM "UtilisateursSysteme" WHERE "Id" = $1'
+      : 'DELETE FROM UtilisateursSysteme WHERE Id = ?';
+
+    await db.query(deleteQuery, [userId]);
+
+    res.json({ success: true, message: 'تم حذف الحساب نهائياً بنجاح ✅' });
+  } catch (err) {
+    console.error('Delete user direct error:', err.message);
+    res.status(500).json({ error: 'خطأ أثناء حذف الحساب: ' + err.message });
+  }
+});
+
 // Direct endpoint fallback for cancel-checkout
 app.post('/api/attendance/cancel-checkout', async (req, res) => {
   try {
