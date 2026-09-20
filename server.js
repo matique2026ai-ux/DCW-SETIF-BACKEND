@@ -417,6 +417,46 @@ app.get('/api/dashboard/analytics', async (req, res) => {
   }
 });
 
+// Direct Visit Approve & Delete Fallback
+app.all(['/api/visits/:id/approve', '/api/visits/:id/vise'], async (req, res) => {
+  try {
+    const { approvedBy } = req.body;
+    const db = await getConnection();
+    const pg = isPostgres();
+    const numId = parseInt(req.params.id, 10);
+    await db.query(
+      pg
+        ? `UPDATE "TrackerVisits" SET "IsApproved"=true, "ApprovedBy"=$1, "ApprovedAt"=NOW() WHERE "Id"=$2`
+        : `UPDATE TrackerVisits SET IsApproved=1, ApprovedBy=?, ApprovedAt=GETDATE() WHERE Id=?`,
+      [approvedBy || 'المدير الولائي للتجارة', numId]
+    );
+    const result = await db.query(
+      pg ? `SELECT * FROM "TrackerVisits" WHERE "Id" = $1` : 'SELECT * FROM TrackerVisits WHERE Id = ?',
+      [numId]
+    );
+    res.json({ success: true, message: 'تم تأشير واعتماد المعاينة رسمياً بنجاح ✅', visit: result[0] });
+  } catch (err) {
+    console.error('Direct approve visit error:', err.message);
+    res.status(500).json({ error: 'خطأ في تأشير المعاينة' });
+  }
+});
+
+app.delete('/api/visits/:id', async (req, res) => {
+  try {
+    const numId = parseInt(req.params.id, 10);
+    const db = await getConnection();
+    const pg = isPostgres();
+    await db.query(
+      pg ? 'DELETE FROM "TrackerVisits" WHERE "Id" = $1' : 'DELETE FROM TrackerVisits WHERE Id = ?',
+      [numId]
+    );
+    res.json({ success: true, message: 'تم حذف محضر المعاينة بنجاح ✅' });
+  } catch (err) {
+    console.error('Direct delete visit error:', err.message);
+    res.status(500).json({ error: 'خطأ أثناء حذف المعاينة' });
+  }
+});
+
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/visits', visitRoutes);
 app.use('/api/deductions', deductionRoutes);
