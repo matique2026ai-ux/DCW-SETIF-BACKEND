@@ -143,4 +143,217 @@ router.get('/recent-activity', async (req, res) => {
   }
 });
 
+router.get('/analytics', async (req, res) => {
+  try {
+    const db = await getConnection();
+    const pg = isPostgres();
+    const { date, startDate, endDate } = req.query;
+    const today = getTodayAlgeria();
+    const queryDate = date || today;
+
+    // 1. Employee Stats
+    const allEmployees = await db.query(
+      pg
+        ? `SELECT "Id","Nom","Prenom","NomAr","PrenomAr","Service","Grade","Bureau","Structure" FROM "Employes" WHERE "EstActif" = true`
+        : 'SELECT Id,Nom,Prenom,NomAr,PrenomAr,Service,Grade,Bureau,Structure FROM Employes WHERE EstActif = 1'
+    );
+
+    const targetEmployees = allEmployees.filter(e => {
+      const s = (e.Service || e.service || '').toString();
+      return s && TARGET_DEPARTMENTS.some(d => s.includes(d));
+    });
+
+    const targetIds = targetEmployees.map(e => e.Id || e.id).filter(Boolean);
+
+    // Attendance
+    let presentCount = 0;
+    let checkedOutCount = 0;
+    if (targetIds.length > 0) {
+      const presentRes = await db.query(
+        pg
+          ? `SELECT COUNT(DISTINCT "EmployeeId") as count FROM "TrackerAttendance" WHERE "Date" = $1 AND "EmployeeId" = ANY($2)`
+          : `SELECT COUNT(DISTINCT EmployeeId) as count FROM TrackerAttendance WHERE Date = ? AND EmployeeId IN (${targetIds.join(',')})`,
+        pg ? [queryDate, targetIds] : [queryDate]
+      );
+      const checkedOutRes = await db.query(
+        pg
+          ? `SELECT COUNT(DISTINCT "EmployeeId") as count FROM "TrackerAttendance" WHERE "Date" = $1 AND "EmployeeId" = ANY($2) AND "IsCheckedOut" = true`
+          : `SELECT COUNT(DISTINCT EmployeeId) as count FROM TrackerAttendance WHERE Date = ? AND EmployeeId IN (${targetIds.join(',')}) AND IsCheckedOut = 1`,
+        pg ? [queryDate, targetIds] : [queryDate]
+      );
+      presentCount = parseInt(presentRes[0]?.count || presentRes[0]?.COUNT || 0, 10);
+      checkedOutCount = parseInt(checkedOutRes[0]?.count || checkedOutRes[0]?.COUNT || 0, 10);
+    }
+
+    // 2. Visits & Inspections Aggregations
+    let visitParams = [queryDate];
+    let dateCondition = pg ? `tv."Date" = $1` : `tv.Date = ?`;
+    if (startDate && endDate) {
+      visitParams = [startDate, endDate];
+      dateCondition = pg ? `tv."Date" >= $1 AND tv."Date" <= $2` : `tv.Date >= ? AND tv.Date <= ?`;
+    }
+
+    const visitsQuery = pg
+      ? `SELECT tv.*, e."NomAr", e."PrenomAr", e."Nom", e."Prenom", e."Service", e."Grade"
+         FROM "TrackerVisits" tv
+         LEFT JOIN "Employes" e ON tv."EmployeeId" = e."Id"
+         WHERE ${dateCondition}
+         ORDER BY tv."CheckInTime" DESC`
+      : `SELECT tv.*, e.NomAr, e.PrenomAr, e.Nom, e.Prenom, e.Service, e.Grade
+         FROM TrackerVisits tv
+         LEFT JOIN Employes e ON tv.EmployeeId = e.Id
+         WHERE ${dateCondition}
+         ORDER BY tv.CheckInTime DESC`;
+
+    const visitsResult = await db.query(visitsQuery, visitParams);
+    const visits = visitsResult || [];
+
+    // All-time / Cumulative visits aggregate for macro perspective
+    const cumulativeQuery = pg
+      ? `SELECT 
+           COUNT(*) as total_cumulative_visits,
+           COUNT(CASE WHEN "ViolationFound" = true THEN 1 END) as cumulative_violations,
+           COALESCE(SUM("SeizureValue"), 0) as cumulative_seizures_value,
+           COUNT(CASE WHEN "LegalAction" LIKE '%غلق%' OR "ViolationNotes" LIKE '%غلق%' THEN 1 END) as cumulative_closures,
+           COUNT(CASE WHEN "LegalAction" LIKE '%عين%' OR "ViolationNotes" LIKE '%عين%' THEN 1 END) as cumulative_samples,
+           COUNT(CASE WHEN "LegalAction" LIKE '%محضر%' OR "ViolationNotes" LIKE '%محضر%' THEN 1 END) as cumulative_court_referrals
+         FROM "TrackerVisits"`
+      : `SELECT 
+           COUNT(*) as total_cumulative_visits,
+           SUM(CASE WHEN ViolationFound = 1 THEN 1 ELSE 0 END) as cumulative_violations,
+           ISNULL(SUM(SeizureValue), 0) as cumulative_seizures_value,
+           SUM(CASE WHEN LegalAction LIKE '%غلق%' OR ViolationNotes LIKE '%غلق%' THEN 1 ELSE 0 END) as cumulative_closures,
+           SUM(CASE WHEN LegalAction LIKE '%عين%' OR ViolationNotes LIKE '%عين%' THEN 1 ELSE 0 END) as cumulative_samples,
+           SUM(CASE WHEN LegalAction LIKE '%محضر%' OR ViolationNotes LIKE '%محضر%' THEN 1 ELSE 0 END) as cumulative_court_referrals
+         FROM TrackerVisits`;
+
+    const cumResult = await db.query(cumulativeQuery);
+    const cumRow = cumResult[0] || {};
+
+    // Calculate metrics for selected timeframe
+    let totalVisits = visits.length;
+    let violationsCount = 0;
+    let totalSeizureValue = 0;
+    let seizuresCount = 0;
+    let approvedCount = 0;
+    let closureProposalsCount = 0;
+    let samplesCount = 0;
+    let courtReferralsCount = 0;
+
+    const deptStats = {
+      fraudRepression: {
+        name: 'مصلحة حماية المستهلك وقمع الغش',
+        visits: 0,
+        violations: 0,
+        seizuresValue: 0,
+        samples: 0,
+        closures: 0,
+      },
+      competition: {
+        name: 'مصلحة المنافسة والتحقيقات الاقتصادية',
+        visits: 0,
+        violations: 0,
+        seizuresValue: 0,
+        courtReferrals: 0,
+        closures: 0,
+      },
+    };
+
+    const inspectorBreakdown = {};
+
+    visits.forEach(v => {
+      const isViol = v.ViolationFound === true || v.violationfound === true || v.ViolationFound == 1;
+      const sVal = parseFloat(v.SeizureValue || v.seizurevalue || 0) || 0;
+      const isAppr = v.IsApproved === true || v.isapproved === true || v.IsApproved == 1;
+      const lAction = (v.LegalAction || v.legalaction || '').toString();
+      const vNotes = (v.ViolationNotes || v.violationnotes || '').toString();
+      const fullNotes = `${lAction} ${vNotes}`;
+
+      if (isViol) violationsCount++;
+      if (sVal > 0) {
+        totalSeizureValue += sVal;
+        seizuresCount++;
+      }
+      if (isAppr) approvedCount++;
+      if (fullNotes.includes('غلق') || fullNotes.includes('إغلاق')) closureProposalsCount++;
+      if (fullNotes.includes('عين') || fullNotes.includes('تحليل') || fullNotes.includes('مخبر')) samplesCount++;
+      if (fullNotes.includes('محضر') || fullNotes.includes('متابعة') || fullNotes.includes('عدالة')) courtReferralsCount++;
+
+      // By Department
+      const srv = (v.Service || v.service || '').toString();
+      if (srv.includes('قمع الغش') || srv.includes('المستهلك')) {
+        deptStats.fraudRepression.visits++;
+        if (isViol) deptStats.fraudRepression.violations++;
+        deptStats.fraudRepression.seizuresValue += sVal;
+        if (fullNotes.includes('عين') || fullNotes.includes('تحليل')) deptStats.fraudRepression.samples++;
+        if (fullNotes.includes('غلق')) deptStats.fraudRepression.closures++;
+      } else if (srv.includes('المنافسة') || srv.includes('التحقيقات')) {
+        deptStats.competition.visits++;
+        if (isViol) deptStats.competition.violations++;
+        deptStats.competition.seizuresValue += sVal;
+        if (fullNotes.includes('محضر')) deptStats.competition.courtReferrals++;
+        if (fullNotes.includes('غلق')) deptStats.competition.closures++;
+      }
+
+      // By Inspector
+      const empId = v.EmployeeId || v.employeeid;
+      const empName = (v.NomAr || v.nomar) ? `${v.NomAr || v.nomar} ${v.PrenomAr || v.prenomar || ''}`.trim() : `مفتش #${empId}`;
+      if (!inspectorBreakdown[empId]) {
+        inspectorBreakdown[empId] = {
+          employeeId: empId,
+          name: empName,
+          service: srv,
+          visitsCount: 0,
+          violationsCount: 0,
+          seizuresValue: 0,
+        };
+      }
+      inspectorBreakdown[empId].visitsCount++;
+      if (isViol) inspectorBreakdown[empId].violationsCount++;
+      inspectorBreakdown[empId].seizuresValue += sVal;
+    });
+
+    const activeProgramsCount = await db.query(
+      pg ? `SELECT COUNT(*) as count FROM "TrackerPrograms"` : `SELECT COUNT(*) as count FROM TrackerPrograms`
+    );
+
+    res.json({
+      selectedDate: queryDate,
+      attendance: {
+        totalInspectors: targetIds.length,
+        presentToday: presentCount,
+        checkedOutToday: checkedOutCount,
+        absentToday: Math.max(0, targetIds.length - presentCount),
+        readinessRate: targetIds.length > 0 ? ((presentCount / targetIds.length) * 100).toFixed(1) : '0',
+      },
+      todayInspections: {
+        totalVisits,
+        violationsCount,
+        seizuresCount,
+        totalSeizureValue,
+        approvedCount,
+        closureProposalsCount,
+        samplesCount,
+        courtReferralsCount,
+        complianceRate: totalVisits > 0 ? (((totalVisits - violationsCount) / totalVisits) * 100).toFixed(1) : '100',
+      },
+      cumulativeTotals: {
+        totalVisits: parseInt(cumRow.total_cumulative_visits || cumRow.TOTAL_CUMULATIVE_VISITS || 0, 10),
+        violationsCount: parseInt(cumRow.cumulative_violations || cumRow.CUMULATIVE_VIOLATIONS || 0, 10),
+        totalSeizureValue: parseFloat(cumRow.cumulative_seizures_value || cumRow.CUMULATIVE_SEIZURES_VALUE || 0),
+        closureProposalsCount: parseInt(cumRow.cumulative_closures || cumRow.CUMULATIVE_CLOSURES || 0, 10),
+        samplesCount: parseInt(cumRow.cumulative_samples || cumRow.CUMULATIVE_SAMPLES || 0, 10),
+        courtReferralsCount: parseInt(cumRow.cumulative_court_referrals || cumRow.CUMULATIVE_COURT_REFERRALS || 0, 10),
+      },
+      departmentBreakdown: deptStats,
+      topInspectors: Object.values(inspectorBreakdown).sort((a, b) => b.visitsCount - a.visitsCount).slice(0, 5),
+      recentVisits: visits.slice(0, 15),
+      activeProgramsCount: parseInt(activeProgramsCount[0]?.count || activeProgramsCount[0]?.COUNT || 0, 10),
+    });
+  } catch (err) {
+    console.error('Analytics error:', err.message);
+    res.status(500).json({ error: 'خطأ في جلب التحليلات الرقابية: ' + err.message });
+  }
+});
+
 module.exports = router;
