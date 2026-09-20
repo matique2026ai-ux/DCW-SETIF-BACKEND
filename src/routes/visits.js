@@ -182,10 +182,18 @@ router.post('/', async (req, res) => {
 
 router.post('/:id/checkout', async (req, res) => {
   try {
-    const { violationFound, violationType, violationNotes, notes, legalAction, seizureValue } = req.body;
+    const {
+      violationFound, ViolationFound, HasViolation,
+      violationType, ViolationType,
+      violationNotes, ViolationNotes,
+      notes, Notes,
+      legalAction, LegalAction,
+      seizureValue, SeizureValue
+    } = req.body;
     const db = await getConnection();
     const pg = isPostgres();
-    const sValue = parseFloat(seizureValue) || 0;
+    const sValue = parseFloat(seizureValue || SeizureValue) || 0;
+    const isViol = violationFound === true || violationFound === 'true' || ViolationFound === true || HasViolation === true;
 
     await db.query(
       pg
@@ -197,7 +205,7 @@ router.post('/:id/checkout', async (req, res) => {
            ViolationFound=?,ViolationType=?,ViolationNotes=?,
            LegalAction=?,SeizureValue=?,
            Notes=ISNULL(?,Notes) WHERE Id=?`,
-      [violationFound ? true : false, violationType || null, violationNotes || null, legalAction || null, sValue, notes || null, req.params.id]
+      [isViol, violationType || ViolationType || null, violationNotes || ViolationNotes || null, legalAction || LegalAction || null, sValue, notes || Notes || null, req.params.id]
     );
 
     const result = await db.query(
@@ -209,6 +217,54 @@ router.post('/:id/checkout', async (req, res) => {
     res.json(result[0]);
   } catch (err) {
     res.status(500).json({ error: 'خطأ في إنهاء الزيارة' });
+  }
+});
+
+router.put('/:id', async (req, res) => {
+  try {
+    const {
+      shopName, shopType, locationName,
+      violationFound, violationType, violationNotes,
+      legalAction, seizureValue, isApproved
+    } = req.body;
+    const db = await getConnection();
+    const pg = isPostgres();
+    const sValue = parseFloat(seizureValue) || 0;
+
+    await db.query(
+      pg
+        ? `UPDATE "TrackerVisits" SET 
+           "ShopName"=COALESCE($1,"ShopName"),
+           "ShopType"=COALESCE($2,"ShopType"),
+           "LocationName"=COALESCE($3,"LocationName"),
+           "ViolationFound"=COALESCE($4,"ViolationFound"),
+           "ViolationType"=COALESCE($5,"ViolationType"),
+           "ViolationNotes"=COALESCE($6,"ViolationNotes"),
+           "LegalAction"=COALESCE($7,"LegalAction"),
+           "SeizureValue"=COALESCE($8,"SeizureValue"),
+           "IsApproved"=COALESCE($9,"IsApproved")
+           WHERE "Id"=$10`
+        : `UPDATE TrackerVisits SET 
+           ShopName=ISNULL(?,ShopName),
+           ShopType=ISNULL(?,ShopType),
+           LocationName=ISNULL(?,LocationName),
+           ViolationFound=ISNULL(?,ViolationFound),
+           ViolationType=ISNULL(?,ViolationType),
+           ViolationNotes=ISNULL(?,ViolationNotes),
+           LegalAction=ISNULL(?,LegalAction),
+           SeizureValue=ISNULL(?,SeizureValue),
+           IsApproved=ISNULL(?,IsApproved)
+           WHERE Id=?`,
+      [shopName || null, shopType || null, locationName || null, violationFound, violationType || null, violationNotes || null, legalAction || null, sValue, isApproved, req.params.id]
+    );
+
+    const result = await db.query(
+      pg ? `SELECT * FROM "TrackerVisits" WHERE "Id" = $1` : 'SELECT * FROM TrackerVisits WHERE Id = ?',
+      [req.params.id]
+    );
+    res.json(result[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'خطأ في تحديث بيانات المعاينة' });
   }
 });
 
