@@ -482,8 +482,8 @@ app.get('/api/reports/inspection-summary', async (req, res) => {
     const inspectorMap = {};
     for (const v of visits) {
       const empId = v.EmployeeId || v.employeeid;
-      const nomAr = v.NomAr || v.nomarr || '';
-      const prenomAr = v.PrenomAr || v.prenomarr || '';
+      const nomAr = v.NomAr || v.nomar || v.nomarr || '';
+      const prenomAr = v.PrenomAr || v.prenomar || v.prenomarr || '';
       const nom = v.Nom || v.nom || '';
       const prenom = v.Prenom || v.prenom || '';
       const service_ = v.Service || v.service || 'غير محدد';
@@ -494,9 +494,11 @@ app.get('/api/reports/inspection-summary', async (req, res) => {
       const isApproved = v.IsApproved === true || v.isapproved === true;
 
       if (!inspectorMap[empId]) {
+        const fullArName = `${nomAr} ${prenomAr}`.trim();
+        const fullFrName = `${nom} ${prenom}`.trim();
         inspectorMap[empId] = {
           employeeId: empId,
-          name: (nomAr && prenomAr) ? `${nomAr} ${prenomAr}` : `${nom} ${prenom}`,
+          name: fullArName.length > 0 ? fullArName : (fullFrName.length > 0 ? fullFrName : `مفتش #${empId}`),
           matricule: mat,
           grade,
           service: service_,
@@ -576,24 +578,32 @@ app.get('/api/reports/inspection-summary', async (req, res) => {
     }
 
     // ── 6. Attendance GPS archive (daily presence with coordinates)
-    const attendanceGPS = attendance.map(a => ({
-      employeeId: a.EmployeeId || a.employeeid,
-      name: (a.NomAr || a.nomarr || '') + ' ' + (a.PrenomAr || a.prenomarr || ''),
-      matricule: a.NumeroMatricule || a.numeromatricule || '',
-      service: a.Service || a.service || '',
-      date: a.Date || a.date,
-      checkInTime: a.CheckInTime || a.checkintime,
-      checkOutTime: a.CheckOutTime || a.checkouttime,
-      checkInLatitude: parseFloat(a.CheckInLatitude || a.checkinlatitude || 0) || null,
-      checkInLongitude: parseFloat(a.CheckInLongitude || a.checkinlongitude || 0) || null,
-      checkOutLatitude: parseFloat(a.CheckOutLatitude || a.checkoutlatitude || 0) || null,
-      checkOutLongitude: parseFloat(a.CheckOutLongitude || a.checkoutlongitude || 0) || null,
-      checkInLocation: a.CheckInLocation || a.checkinlocation || '',
-      checkOutLocation: a.CheckOutLocation || a.checkoutlocation || '',
-      isWithinGeofence: a.IsWithinGeofence || a.iswithingeozone,
-      lateMinutes: a.LateMinutes || a.lateminutes || 0,
-      earlyReason: a.EarlyReason || a.earlyreason || null,
-    }));
+    const attendanceGPS = attendance.map(a => {
+      const nAr = (a.NomAr || a.nomar || a.nomarr || '').trim();
+      const pAr = (a.PrenomAr || a.prenomar || a.prenomarr || '').trim();
+      const nFr = (a.Nom || a.nom || '').trim();
+      const pFr = (a.Prenom || a.prenom || '').trim();
+      const arName = `${nAr} ${pAr}`.trim();
+      const frName = `${nFr} ${pFr}`.trim();
+      return {
+        employeeId: a.EmployeeId || a.employeeid,
+        name: arName.length > 0 ? arName : (frName.length > 0 ? frName : `موظف #${a.EmployeeId || a.employeeid}`),
+        matricule: a.NumeroMatricule || a.numeromatricule || '',
+        service: a.Service || a.service || '',
+        date: a.Date || a.date,
+        checkInTime: a.CheckInTime || a.checkintime,
+        checkOutTime: a.CheckOutTime || a.checkouttime,
+        checkInLatitude: parseFloat(a.CheckInLatitude || a.checkinlatitude || 0) || null,
+        checkInLongitude: parseFloat(a.CheckInLongitude || a.checkinlongitude || 0) || null,
+        checkOutLatitude: parseFloat(a.CheckOutLatitude || a.checkoutlatitude || 0) || null,
+        checkOutLongitude: parseFloat(a.CheckOutLongitude || a.checkoutlongitude || 0) || null,
+        checkInLocation: a.CheckInLocation || a.checkinlocation || '',
+        checkOutLocation: a.CheckOutLocation || a.checkoutlocation || '',
+        isWithinGeofence: a.IsWithinGeofence === true || a.iswithingeofence === true,
+        lateMinutes: a.LateMinutes || a.lateminutes || 0,
+        earlyReason: a.EarlyReason || a.earlyreason || null,
+      };
+    });
 
     // ── 7. Global totals
     const totalVisits = visits.length;
