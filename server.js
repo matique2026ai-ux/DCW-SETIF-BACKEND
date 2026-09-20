@@ -847,8 +847,19 @@ async function start() {
     await seedUsers();
     await seedPrograms();
     await seedMeansData();
+
+    const publicPath = path.join(__dirname, 'public');
+    if (fs.existsSync(publicPath)) {
+      app.use(express.static(publicPath));
+      app.get('*', (req, res, next) => {
+        if (req.path.startsWith('/api')) return next();
+        res.sendFile(path.join(publicPath, 'index.html'));
+      });
+      console.log('🌐 Static Flutter web app enabled from public/');
+    }
+
     app.listen(PORT, () => {
-      console.log(`🚀 DRH-SETIF-TRACKER API v3.0 running on http://localhost:${PORT}`);
+      console.log(`🚀 DRH-SETIF-TRACKER API v3.1 running on http://localhost:${PORT}`);
     });
   } catch (err) {
     console.error('❌ Failed to start:', err.message);
