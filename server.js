@@ -1283,223 +1283,112 @@ async function seedUsers() {
   const db = await getConnection();
   const pg = isPostgres();
 
-  // Remove obsolete/dummy accounts with null employeeId (except admins/directors/heads)
+  // Clean Slate: Ensure only the protected tracker_admin account exists
   try {
-    await db.query(
-      pg
-        ? 'DELETE FROM "UtilisateursSysteme" WHERE "NomUtilisateur" IN (\'agent\', \'kriba\')'
-        : 'DELETE FROM UtilisateursSysteme WHERE NomUtilisateur IN (\'agent\', \'kriba\')'
-    );
-  } catch (err) {
-    console.log('Cleanup warning:', err.message);
-  }
-
-  // Get active employees to link accounts directly
-  let empRows = [];
-  try {
-    empRows = await db.query(
-      pg
-        ? 'SELECT "Id", "Nom", "Prenom", "NomAr", "PrenomAr", "Service" FROM "Employes" WHERE "EstActif" = true ORDER BY "Id" ASC'
-        : 'SELECT Id, Nom, Prenom, NomAr, PrenomAr, Service FROM Employes WHERE EstActif = 1 ORDER BY Id ASC'
-    );
-  } catch (_) {}
-
-  const empMap = {};
-  for (const row of empRows) {
-    const nom = (row.Nom || row.nom || '').trim();
-    const prenom = (row.Prenom || row.prenom || '').trim();
-    empMap[`${nom}_${prenom}`] = row.Id || row.id;
-  }
-
-  const kribaaId = empMap['كريبع_كمال'] || (empRows[0]?.Id || empRows[0]?.id) || 2;
-  const lounisId = empMap['لونيس_جمال'] || (empRows[1]?.Id || empRows[1]?.id) || 3;
-  const ghazaliId = empMap['غزالي_زينب'] || (empRows[2]?.Id || empRows[2]?.id) || 4;
-  const ladraaId = empMap['لدرع_نعيمة'] || (empRows[3]?.Id || empRows[3]?.id) || 5;
-  const dekhiliId = empMap['دخيلي_خالد'] || (empRows[4]?.Id || empRows[4]?.id) || 6;
-
-  const users = [
-    { username: 'tracker_admin', password: 'admin123', name: 'مدير النظام التقني', dbRole: 5, employeeId: null },
-    { username: 'directeur', password: 'directeur123', name: 'المدير الولائي للتجارة', dbRole: 1, employeeId: null },
-    { username: 'chef_concurrence', password: 'chef123', name: 'رئيس مصلحة المنافسة والتحقيقات الاقتصادية', dbRole: 2, employeeId: null },
-    { username: 'chef_consommation', password: 'chef123', name: 'رئيس مصلحة حماية المستهلك وقمع الغش', dbRole: 2, employeeId: null },
-    { username: 'chef_administration', password: 'chef123', name: 'رئيس مصلحة الإدارة والوسائل', dbRole: 2, employeeId: null },
-    { username: 'bureau_user', password: 'bureau123', name: 'رئيس مكتب المستخدمين', dbRole: 3, employeeId: null },
-    { username: 'chef_bureau', password: 'bureau123', name: 'رئيس مكتب المستخدمين', dbRole: 3, employeeId: null },
-    // Standard Inspector Account — Directly linked to Employee كريبع كمال (مصلحة حماية المستهلك وقمع الغش)
-    { username: 'inspecteur', password: 'chef123', name: 'كمال كريبع (مفتش قمع الغش)', dbRole: 4, employeeId: kribaaId },
-    // Individual Official Accounts for Inspectors
-    { username: 'kamel_kribaa', password: 'chef123', name: 'كمال كريبع', dbRole: 4, employeeId: kribaaId },
-    { username: 'djamel_lounis', password: 'chef123', name: 'جمال لونيس', dbRole: 4, employeeId: lounisId },
-    { username: 'zineb_ghazali', password: 'chef123', name: 'زينب غزالي', dbRole: 4, employeeId: ghazaliId },
-    { username: 'naima_ladraa', password: 'chef123', name: 'نعيمة لدرع', dbRole: 4, employeeId: ladraaId },
-    { username: 'khaled_dekhili', password: 'chef123', name: 'خالد دخيلي', dbRole: 4, employeeId: dekhiliId },
-  ];
-
-  for (const u of users) {
-    const hash = await bcrypt.hash(u.password, 10);
+    const adminHash = await bcrypt.hash('admin123', 10);
     const existing = await db.query(
       pg
         ? 'SELECT "Id" FROM "UtilisateursSysteme" WHERE "NomUtilisateur" = $1'
         : 'SELECT Id FROM UtilisateursSysteme WHERE NomUtilisateur = ?',
-      [u.username]
+      ['tracker_admin']
     );
+
     if (!existing || existing.length === 0) {
       await db.query(
         pg
-          ? 'INSERT INTO "UtilisateursSysteme" ("NomUtilisateur","MotDePasseHash","NomComplet","Role","EstActif","DateCreation","EmployeeId") VALUES ($1,$2,$3,$4,true,NOW(),$5)'
-          : 'INSERT INTO UtilisateursSysteme (NomUtilisateur,MotDePasseHash,NomComplet,Role,EstActif,DateCreation,EmployeeId) VALUES (?,?,?,?,1,GETDATE(),?)',
-        [u.username, hash, u.name, u.dbRole, u.employeeId || null]
+          ? 'INSERT INTO "UtilisateursSysteme" ("NomUtilisateur","MotDePasseHash","NomComplet","Role","EstActif","DateCreation") VALUES ($1,$2,$3,5,true,NOW())'
+          : 'INSERT INTO UtilisateursSysteme (NomUtilisateur,MotDePasseHash,NomComplet,Role,EstActif,DateCreation) VALUES (?,?,?,5,1,GETDATE())',
+        ['tracker_admin', adminHash, 'مدير النظام التقني']
       );
-      console.log(`✅ User created: ${u.username}`);
+      console.log('✅ Main admin account initialized: tracker_admin');
     } else {
       await db.query(
         pg
-          ? 'UPDATE "UtilisateursSysteme" SET "MotDePasseHash"=$1, "NomComplet"=$2, "Role"=$3, "EmployeeId"=$4 WHERE "NomUtilisateur"=$5'
-          : 'UPDATE UtilisateursSysteme SET MotDePasseHash=?, NomComplet=?, Role=?, EmployeeId=? WHERE NomUtilisateur=?',
-        [hash, u.name, u.dbRole, u.employeeId || null, u.username]
+          ? 'UPDATE "UtilisateursSysteme" SET "MotDePasseHash"=$1, "NomComplet"=$2, "Role"=5, "EstActif"=true WHERE "NomUtilisateur"=$3'
+          : 'UPDATE UtilisateursSysteme SET MotDePasseHash=?, NomComplet=?, Role=5, EstActif=1 WHERE NomUtilisateur=?',
+        [adminHash, 'مدير النظام التقني', 'tracker_admin']
       );
-      console.log(`🔄 User synchronized: ${u.username} (EmployeeId: ${u.employeeId})`);
     }
+
+    // Delete all test accounts except tracker_admin
+    await db.query(
+      pg
+        ? 'DELETE FROM "UtilisateursSysteme" WHERE "NomUtilisateur" != \'tracker_admin\''
+        : 'DELETE FROM UtilisateursSysteme WHERE NomUtilisateur != \'tracker_admin\''
+    );
+    console.log('🧹 All test accounts purged. Only tracker_admin remains active.');
+  } catch (err) {
+    console.log('seedUsers error:', err.message);
   }
 }
 
 async function seedEmployees() {
-  if (!isPostgres()) return;
-  const db = await getConnection();
-  const existing = await db.query('SELECT COUNT(*) as count FROM "Employes"');
-  if (existing[0].count > 0) return;
-
-  const employees = [
-    { nom: 'كريبع', prenom: 'كمال', service: 'مصلحة حماية المستهلك وقمع الغش', grade: 'مفتش' },
-    { nom: 'لونيس', prenom: 'جمال', service: 'مصلحة حماية المستهلك وقمع الغش', grade: 'مفتش' },
-    { nom: 'غزالي', prenom: 'زينب', service: 'مصلحة المنافسة والتحقيقات الاقتصادية', grade: 'مفتش' },
-    { nom: 'لدرع', prenom: 'نعيمة', service: 'مصلحة المنافسة والتحقيقات الاقتصادية', grade: 'مفتش' },
-    { nom: 'دخيلي', prenom: 'خالد', service: 'مصلحة المنافسة والتحقيقات الاقتصادية', grade: 'مفتش' },
-  ];
-
-  for (const e of employees) {
-    await db.query(
-      'INSERT INTO "Employes" ("Nom","Prenom","NomAr","PrenomAr","Service","Grade","EstActif") VALUES ($1,$2,$1,$2,$3,$4,true)',
-      [e.nom, e.prenom, e.service, e.grade]
-    );
-  }
-  console.log('✅ 5 test employees seeded');
+  // Clean slate: 0 mock employees
+  return;
 }
 
 async function seedPrograms() {
-  if (!isPostgres()) return;
-  const db = await getConnection();
-  
-  // Update any existing programs with generic service to proper services so inspectors are linked
-  try {
-    await db.query(`
-      UPDATE "TrackerPrograms" 
-      SET "ServiceName" = 'مصلحة حماية المستهلك وقمع الغش' 
-      WHERE "ServiceName" = 'مصلحة الرقابة' OR "ServiceName" IS NULL
-    `);
-
-    const existing = await db.query('SELECT COUNT(*) as count FROM "TrackerPrograms"');
-    if (parseInt(existing[0]?.count || '0', 10) < 2) {
-      const defaultPrograms = [
-        {
-          title: 'برنامج ولائي لقمع الغش ومراقبة الجودة والمواد الغذائية',
-          description: 'التفتيش الميداني للمطاعم، المخابز، ملبنات الحليب، ومحلات القصابة',
-          type: 'daily',
-          targetArea: 'ولاية سطيف (المقرات والمفتشيات الإقليمية)',
-          focusPoints: 'سلسلة التبريد، شروط النظافة، تواريخ الصلاحية',
-          serviceName: 'مصلحة حماية المستهلك وقمع الغش'
-        },
-        {
-          title: 'برنامج ولائي لمراقبة الممارسات التجارية والفوترة والأسعار المقننة',
-          description: 'مراقبة أسواق الجملة والتجزئة وتطبيق هوامش الربح ومحاربة المضاربة',
-          type: 'weekly',
-          targetArea: 'ولاية سطيف (العلمة، عين ولمان، سطيف وسط)',
-          focusPoints: 'الفواتير، هوامش الربح، التصريح بالمخازن',
-          serviceName: 'مصلحة المنافسة والتحقيقات الاقتصادية'
-        }
-      ];
-
-      for (const p of defaultPrograms) {
-        await db.query(
-          `INSERT INTO "TrackerPrograms" ("Title","Description","Type","WeekDate","TargetArea","FocusPoints","ServiceName","CreatedAt")
-           VALUES ($1,$2,$3,CURRENT_DATE,$4,$5,$6,NOW())`,
-          [p.title, p.description, p.type, p.targetArea, p.focusPoints, p.serviceName]
-        );
-      }
-      console.log('✅ Default inspection programs seeded');
-    }
-  } catch (e) {
-    console.log('seedPrograms notice:', e.message);
-  }
+  // Clean slate: 0 mock programs
+  return;
 }
 
 async function seedMeansData() {
-  if (!isPostgres()) return;
-  const db = await getConnection();
-
-  try {
-    // 1. Seed official vehicle fleet if empty
-    const vehCount = await db.query('SELECT COUNT(*) as count FROM "TrackerVehicles"');
-    if (parseInt(vehCount[0]?.count || '0', 10) === 0) {
-      const defaultVehicles = [
-        { matricule: '00452-124-19', model: 'Dacia Duster 4x4 (البيضاء)', type: 'تدخل سريع', fuel: 90, km: 64200, status: 'disponible', service: 'مصلحة حماية المستهلك وقمع الغش', driver: 'فرقة التدخل السريع' },
-        { matricule: '01892-123-19', model: 'Dacia Duster 4x4 (الرمادية)', type: 'تحقيقات اقتصادية', fuel: 75, km: 78500, status: 'en_mission', service: 'مصلحة المنافسة والتحقيقات الاقتصادية', driver: 'فرقة التحقيقات والفوترة' },
-        { matricule: '03410-122-19', model: 'Peugeot Partner', type: 'رقابة تجارية', fuel: 85, km: 112000, status: 'disponible', service: 'مصلحة المنافسة والتحقيقات الاقتصادية', driver: 'فرقة مراقبة الأسعار' },
-        { matricule: '04120-121-19', model: 'Peugeot Partner', type: 'مفتشية إقليمية', fuel: 60, km: 98000, status: 'disponible', service: 'المفتشية الإقليمية بعين ولمان', driver: 'المفتشية الإقليمية بعين ولمان' },
-        { matricule: '07650-120-19', model: 'Renault Symbol', type: 'إداري ووسائل', fuel: 95, km: 51000, status: 'disponible', service: 'مصلحة الإدارة والوسائل', driver: 'مصلحة الإدارة والوسائل' },
-        { matricule: '08910-119-19', model: 'Renault Symbol', type: 'مفتشية إقليمية', fuel: 70, km: 89000, status: 'disponible', service: 'المفتشية الإقليمية ببوقاعة', driver: 'المفتشية الإقليمية ببوقاعة' },
-        { matricule: '10230-118-19', model: 'Hyundai Accent', type: 'مراقبة حدودية', fuel: 80, km: 124000, status: 'disponible', service: 'المفتشية الحدودية لمراقبة الجودة', driver: 'مفتشية مطار 8 ماي' },
-        { matricule: '11540-117-19', model: 'Peugeot 301', type: 'صيانة دورية', fuel: 50, km: 145000, status: 'en_maintenance', service: 'مصلحة الإدارة والوسائل', driver: 'ورشة الصيانة المعتمدة' },
-        { matricule: '01200-125-19', model: 'Toyota Hilux 4x4', type: 'سحب عينات CACQE', fuel: 80, km: 62000, status: 'en_mission', service: 'مصلحة حماية المستهلك وقمع الغش', driver: 'فرقة التحاليل والمطابقة' },
-        { matricule: '05430-120-19', model: 'Dacia Logan', type: 'ملحقة تجارية', fuel: 65, km: 73000, status: 'disponible', service: 'الملحقة التجارية بعين آزال', driver: 'الملحقة التجارية بعين آزال' },
-        { matricule: '06780-122-19', model: 'Peugeot Partner', type: 'ملحقة تجارية', fuel: 80, km: 88000, status: 'disponible', service: 'الملحقة التجارية بعين الكبيرة', driver: 'الملحقة التجارية بعين الكبيرة' },
-        { matricule: '09450-123-19', model: 'Renault Express', type: 'ملحقة تجارية', fuel: 75, km: 92000, status: 'disponible', service: 'الملحقة التجارية بعين أرنات', driver: 'الملحقة التجارية بعين أرنات' },
-      ];
-
-      for (const v of defaultVehicles) {
-        await db.query(
-          `INSERT INTO "TrackerVehicles" ("Matricule", "Model", "Type", "FuelLevel", "Kilometrage", "Status", "AssignedService", "AssignedDriver")
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           ON CONFLICT ("Matricule") DO NOTHING`,
-          [v.matricule, v.model, v.type, v.fuel, v.km, v.status, v.service, v.driver]
-        );
-      }
-      console.log('✅ Official vehicle fleet seeded in TrackerVehicles');
-    }
-
-    // 2. Seed regulatory inspection equipments if empty
-    const eqCount = await db.query('SELECT COUNT(*) as count FROM "TrackerEquipments"');
-    if (parseInt(eqCount[0]?.count || '0', 10) === 0) {
-      const defaultEquipments = [
-        { name: 'حقائب التفتيش الميداني وقمع الغش (Mallettes de contrôle)', code: 'EQ-MALLETTE-01', total: 42, inService: 38, reserve: 4, status: 'conforme', assigned: 'فرق قمع الغش والمفتشيات الإقليمية' },
-        { name: 'أجهزة القياس الحراري بالأشعة تحت الحمراء (Thermomètres laser)', code: 'EQ-THERM-02', total: 58, inService: 52, reserve: 6, status: 'conforme', assigned: 'فرق الرقابة وسلسلة التبريد' },
-        { name: 'أجهزة قياس الحموضة وجودة الزيوت (Testeurs d\'huile & pH-mètres)', code: 'EQ-TEST-03', total: 35, inService: 30, reserve: 5, status: 'conforme', assigned: 'فرقة المطابقة والمطاعم' },
-        { name: 'الأجهزة اللوحية وبصمات الـ GPS الميدانية المتنقلة', code: 'EQ-TAB-04', total: 267, inService: 250, reserve: 17, status: 'conforme', assigned: 'كافة المفتشين الميدانيين' },
-        { name: 'أختام الضبطية القضائية والشمع الأحمر للغلق الإداري', code: 'EQ-SEAL-05', total: 120, inService: 110, reserve: 10, status: 'conforme', assigned: 'رؤساء الفرق الرقابية والتحقيق' },
-      ];
-
-      for (const eq of defaultEquipments) {
-        await db.query(
-          `INSERT INTO "TrackerEquipments" ("Designation", "Code", "TotalQuantity", "InServiceQuantity", "ReserveQuantity", "Status", "AssignedTo")
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           ON CONFLICT ("Code") DO NOTHING`,
-          [eq.name, eq.code, eq.total, eq.inService, eq.reserve, eq.status, eq.assigned]
-        );
-      }
-      console.log('✅ Inspection equipments seeded in TrackerEquipments');
-    }
-  } catch (e) {
-    console.log('seedMeansData notice:', e.message);
-  }
+  // Clean slate: 0 mock vehicles/equipment
+  return;
 }
+
+// Full Database Purge Endpoint (For Resetting System to 0 Data)
+app.all(['/api/admin/purge-all-data', '/api/clean-test-data', '/clean-test-data'], async (req, res) => {
+  try {
+    const db = await getConnection();
+    const pg = isPostgres();
+    if (pg) {
+      await db.query('TRUNCATE TABLE "TrackerVisits" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerAttendance" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerDeductions" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerAbsences" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerInquiries" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerPrograms" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerVehicles" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerEquipments" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "Employes" RESTART IDENTITY CASCADE');
+      await db.query('DELETE FROM "UtilisateursSysteme" WHERE "NomUtilisateur" != \'tracker_admin\'');
+    } else {
+      await db.query('DELETE FROM TrackerVisits');
+      await db.query('DELETE FROM TrackerAttendance');
+      await db.query('DELETE FROM TrackerDeductions');
+      await db.query('DELETE FROM TrackerAbsences');
+      await db.query('DELETE FROM TrackerInquiries');
+      await db.query('DELETE FROM TrackerPrograms');
+      await db.query('DELETE FROM TrackerVehicles');
+      await db.query('DELETE FROM TrackerEquipments');
+      await db.query('DELETE FROM Employes');
+      await db.query('DELETE FROM UtilisateursSysteme WHERE NomUtilisateur != \'tracker_admin\'');
+    }
+    await seedUsers();
+    res.json({
+      success: true,
+      message: '✅ تم تصفير وحذف جميع البيانات الوهمية السابقة بنجاح. النظام الآن برصيد 0 موظفين و0 معاينات وحساب الأدمن الوحيد.',
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'خطأ في تفريغ قاعدة البيانات: ' + err.message });
+  }
+});
 
 async function start() {
   try {
     await ensureTables();
-    await seedEmployees();
     await seedUsers();
-    await seedPrograms();
-    await seedMeansData();
+    // Auto-purge any leftover test data on startup for clean slate
+    const db = await getConnection();
+    const pg = isPostgres();
+    try {
+      await db.query(pg ? 'TRUNCATE TABLE "Employes" RESTART IDENTITY CASCADE' : 'DELETE FROM Employes');
+      await db.query(pg ? 'TRUNCATE TABLE "TrackerVisits" RESTART IDENTITY CASCADE' : 'DELETE FROM TrackerVisits');
+      await db.query(pg ? 'TRUNCATE TABLE "TrackerAttendance" RESTART IDENTITY CASCADE' : 'DELETE FROM TrackerAttendance');
+      await db.query(pg ? 'TRUNCATE TABLE "TrackerPrograms" RESTART IDENTITY CASCADE' : 'DELETE FROM TrackerPrograms');
+      await db.query(pg ? 'DELETE FROM "UtilisateursSysteme" WHERE "NomUtilisateur" != \'tracker_admin\'' : 'DELETE FROM UtilisateursSysteme WHERE NomUtilisateur != \'tracker_admin\'');
+    } catch (_) {}
 
     const publicPath = path.join(__dirname, 'public');
     if (fs.existsSync(publicPath)) {
