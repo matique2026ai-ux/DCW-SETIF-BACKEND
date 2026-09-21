@@ -1361,13 +1361,13 @@ async function seedUsers() {
   const db = await getConnection();
   const pg = isPostgres();
 
-  // Clean Slate: Ensure only the protected tracker_admin account exists
   try {
     const adminHash = await bcrypt.hash('admin123', 10);
+
     const existing = await db.query(
       pg
-        ? 'SELECT "Id" FROM "UtilisateursSysteme" WHERE "NomUtilisateur" = $1'
-        : 'SELECT Id FROM UtilisateursSysteme WHERE NomUtilisateur = ?',
+        ? 'SELECT "Id" FROM "UtilisateursSysteme" WHERE LOWER("NomUtilisateur") = LOWER($1)'
+        : 'SELECT Id FROM UtilisateursSysteme WHERE LOWER(NomUtilisateur) = LOWER(?)',
       ['tracker_admin']
     );
 
@@ -1378,23 +1378,8 @@ async function seedUsers() {
           : 'INSERT INTO UtilisateursSysteme (NomUtilisateur,MotDePasseHash,NomComplet,Role,EstActif,DateCreation) VALUES (?,?,?,5,1,GETDATE())',
         ['tracker_admin', adminHash, 'مدير النظام التقني']
       );
-      console.log('✅ Main admin account initialized: tracker_admin');
-    } else {
-      await db.query(
-        pg
-          ? 'UPDATE "UtilisateursSysteme" SET "MotDePasseHash"=$1, "NomComplet"=$2, "Role"=5, "EstActif"=true WHERE "NomUtilisateur"=$3'
-          : 'UPDATE UtilisateursSysteme SET MotDePasseHash=?, NomComplet=?, Role=5, EstActif=1 WHERE NomUtilisateur=?',
-        [adminHash, 'مدير النظام التقني', 'tracker_admin']
-      );
+      console.log('✅ Technical Master Admin ensured: tracker_admin');
     }
-
-    // Delete all test accounts except tracker_admin
-    await db.query(
-      pg
-        ? 'DELETE FROM "UtilisateursSysteme" WHERE "NomUtilisateur" != \'tracker_admin\''
-        : 'DELETE FROM UtilisateursSysteme WHERE NomUtilisateur != \'tracker_admin\''
-    );
-    console.log('🧹 All test accounts purged. Only tracker_admin remains active.');
   } catch (err) {
     console.log('seedUsers error:', err.message);
   }
