@@ -4,20 +4,72 @@ const router = express.Router();
 
 // 📜 Official Algerian Republic Digital Certificate Verification Handler (Anti-Fraud & Cryptographically Signed)
 router.use((req, res) => {
-  const { id, emp, employee, name, date, time, loc, location, lat, lng, rad, type, status } = req.query;
+  const { id, emp, employee, name, service, date, time, loc, location, lat, lng, rad, type, status, present } = req.query;
   const cleanId = id || 'DCW-' + Date.now().toString().slice(-6);
   const cleanEmp = emp || employee || name || 'عون رقابة وتفتيش معتمد';
+  const cleanService = service || 'مصلحة الرقابة والمنافسة وقمع الغش';
   const cleanDate = date || new Date().toISOString().slice(0, 10);
-  const cleanTime = time || new Date().toLocaleTimeString('fr-FR', { timeZone: 'Africa/Algiers', hour: '2-digit', minute: '2-digit' });
-  const cleanLoc = loc || location || 'المقر الرئيسي لمديرية التجارة سطيف';
   const isHQ = type === 'OFFICIAL_INSPECTORATE_BADGE' || (status && status.includes('HQ'));
-  const isVisit = type === 'visit' || type === 'VISIT_EVIDENCE';
-  const typeLabel = isHQ
-    ? 'شهادة اعتماد وتوثيق مقر رقابي إقليمي'
-    : (isVisit ? 'شهادة إثبات معاينة ورقابة ميدانية رسمية' : 'شهادة إثبات حضور ميداني رسمي بالبصمة الجغرافية');
+  const isVisit = type === 'visit' || type === 'VISIT_EVIDENCE' || type === 'visit_evidence';
+  const isCheckOut = type === 'checkout';
+  const isPresent = present === '1' || (status && status.includes('PRESENT')) || type === 'checkin';
+  const isAbsent = !isPresent && !isHQ && !isVisit && !isCheckOut;
+
+  let cleanTime = time;
+  if (!cleanTime || cleanTime === 'undefined') {
+    cleanTime = isPresent
+      ? new Date().toLocaleTimeString('fr-FR', { timeZone: 'Africa/Algiers', hour: '2-digit', minute: '2-digit' })
+      : 'غير مسجل اليوم';
+  }
+
+  const cleanLoc = loc || location || (isHQ ? 'مقر رقابي إقليمي' : (isPresent ? 'المقر الرئيسي لمديرية التجارة سطيف' : 'غير متواجد بالمقر'));
+
+  let typeLabel;
+  let statusBadgeText;
+  let statusBadgeColor;
+  let statusBadgeBg;
+  let statusBadgeBorder;
+  let statusIcon;
+
+  if (isHQ) {
+    typeLabel = 'شهادة اعتماد وتوثيق مقر رقابي إقليمي';
+    statusBadgeText = 'شارة مقر رقابي معتمد رسمياً';
+    statusBadgeColor = '#34D399';
+    statusBadgeBg = 'rgba(16, 185, 129, 0.18)';
+    statusBadgeBorder = '#10B981';
+    statusIcon = '✓';
+  } else if (isVisit) {
+    typeLabel = 'شهادة إثبات معاينة ورقابة ميدانية رسمية';
+    statusBadgeText = 'معاينة رقابية ميدانية موثقة';
+    statusBadgeColor = '#38BDF8';
+    statusBadgeBg = 'rgba(56, 189, 248, 0.18)';
+    statusBadgeBorder = '#38BDF8';
+    statusIcon = '🔍';
+  } else if (isCheckOut) {
+    typeLabel = 'شهادة إثبات انصراف نظامي (خروج)';
+    statusBadgeText = 'انصراف رسمي معتمد';
+    statusBadgeColor = '#818CF8';
+    statusBadgeBg = 'rgba(129, 140, 248, 0.18)';
+    statusBadgeBorder = '#818CF8';
+    statusIcon = '🚪';
+  } else if (isAbsent) {
+    typeLabel = 'بطاقة الهوية المهنية الرقمية (غير مسجل حضور اليوم)';
+    statusBadgeText = 'الموظف لم يسجل الحضور الصباحي اليوم';
+    statusBadgeColor = '#FBBF24';
+    statusBadgeBg = 'rgba(245, 158, 11, 0.18)';
+    statusBadgeBorder = '#F59E0B';
+    statusIcon = '⚠️';
+  } else {
+    typeLabel = 'شهادة إثبات حضور صباحي رسمي بالبصمة الجغرافية';
+    statusBadgeText = 'حضور صباحي مؤكد وموثق بالـ GPS';
+    statusBadgeColor = '#34D399';
+    statusBadgeBg = 'rgba(16, 185, 129, 0.18)';
+    statusBadgeBorder = '#10B981';
+    statusIcon = '✓';
+  }
 
   // 🔐 Cryptographic Anti-Tamper Token (SHA-256)
-  const tokenRaw = `${cleanId}:${cleanEmp}:${cleanDate}:${cleanLoc}:DCW_SETIF_2026_MASTER_SECRET`;
+  const tokenRaw = `${cleanId}:${cleanEmp}:${cleanDate}:${cleanLoc}:${isPresent ? 'PRESENT' : 'ABSENT'}:DCW_SETIF_2026_MASTER_SECRET`;
   const signatureHash = crypto.createHash('sha256').update(tokenRaw).digest('hex').toUpperCase();
   const tokenDisplay = `${signatureHash.slice(0, 4)}-${signatureHash.slice(4, 8)}-${signatureHash.slice(8, 12)}-${signatureHash.slice(12, 16)}`;
   
@@ -72,11 +124,11 @@ router.use((req, res) => {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      background: rgba(16, 185, 129, 0.18);
-      border: 1.5px solid #10B981;
+      background: ${statusBadgeBg};
+      border: 1.5px solid ${statusBadgeBorder};
       padding: 8px 18px;
       border-radius: 999px;
-      color: #34D399;
+      color: ${statusBadgeColor};
       font-size: 13px;
       font-weight: 700;
       margin: 14px 0 20px 0;
@@ -154,8 +206,8 @@ router.use((req, res) => {
     </div>
 
     <div class="badge-verified">
-      <span class="badge-icon">✓</span>
-      <span>${typeLabel}</span>
+      <span class="badge-icon">${statusIcon}</span>
+      <span>${statusBadgeText}</span>
     </div>
 
     <div class="details-box">
@@ -163,9 +215,20 @@ router.use((req, res) => {
         <span class="detail-label">الموظف / المعني:</span>
         <span class="detail-value ar gold-text">${cleanEmp}</span>
       </div>
+      ${cleanService ? `
       <div class="detail-row">
-        <span class="detail-label">حالة التوثيق:</span>
-        <span class="detail-value ar" style="color: #34D399;">معتمد ومسجل بالسيرفر الحي ✓</span>
+        <span class="detail-label">المصلحة / الرتبة:</span>
+        <span class="detail-value ar">${cleanService}</span>
+      </div>` : ''}
+      <div class="detail-row">
+        <span class="detail-label">نوع الشهادة:</span>
+        <span class="detail-value ar">${typeLabel}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">حالة الحضور اليوم:</span>
+        <span class="detail-value ar" style="color: ${isPresent ? '#34D399' : (isVisit ? '#38BDF8' : '#F87171')};">
+          ${isPresent ? '🟢 حاضر ومسجل بالسيرفر الحي ✓' : (isVisit ? '🔵 في مهمة رقابية ميدانية' : '🔴 لم يسجل الحضور بعد (غائب)')}
+        </span>
       </div>
       <div class="detail-row">
         <span class="detail-label">تاريخ الاعتماد:</span>
