@@ -154,8 +154,8 @@ router.get('/analytics', async (req, res) => {
     // 1. Employee Stats
     const allEmployees = await db.query(
       pg
-        ? `SELECT "Id","Nom","Prenom","NomAr","PrenomAr","Service","Grade","Bureau","Structure" FROM "Employes" WHERE "EstActif" = true`
-        : 'SELECT Id,Nom,Prenom,NomAr,PrenomAr,Service,Grade,Bureau,Structure FROM Employes WHERE EstActif = 1'
+        ? `SELECT "Id","Nom","Prenom","NomAr","PrenomAr","Service","Grade" FROM "Employes" WHERE "EstActif" = true`
+        : 'SELECT Id,Nom,Prenom,NomAr,PrenomAr,Service,Grade FROM Employes WHERE EstActif = 1'
     );
 
     const targetEmployees = allEmployees.filter(e => {
@@ -186,9 +186,27 @@ router.get('/analytics', async (req, res) => {
     }
 
     // 2. Visits & Inspections Aggregations
+    const { period } = req.query;
+    const effectivePeriod = period || (startDate && endDate ? 'range' : (date ? 'custom_date' : 'today'));
     let visitParams = [queryDate];
     let dateCondition = pg ? `tv."Date" = $1` : `tv.Date = ?`;
-    if (startDate && endDate) {
+
+    if (effectivePeriod === 'week') {
+      const d = new Date();
+      d.setDate(d.getDate() - 6);
+      const weekStart = d.toISOString().split('T')[0];
+      visitParams = [weekStart, today];
+      dateCondition = pg ? `tv."Date" >= $1 AND tv."Date" <= $2` : `tv.Date >= ? AND tv.Date <= ?`;
+    } else if (effectivePeriod === 'month') {
+      const d = new Date();
+      d.setDate(d.getDate() - 29);
+      const monthStart = d.toISOString().split('T')[0];
+      visitParams = [monthStart, today];
+      dateCondition = pg ? `tv."Date" >= $1 AND tv."Date" <= $2` : `tv.Date >= ? AND tv.Date <= ?`;
+    } else if (effectivePeriod === 'all' || effectivePeriod === 'cumulative') {
+      dateCondition = '1=1';
+      visitParams = [];
+    } else if (startDate && endDate) {
       visitParams = [startDate, endDate];
       dateCondition = pg ? `tv."Date" >= $1 AND tv."Date" <= $2` : `tv.Date >= ? AND tv.Date <= ?`;
     }
@@ -260,6 +278,17 @@ router.get('/analytics', async (req, res) => {
     };
 
     const inspectorBreakdown = {};
+    const sectorMap = {};
+    const inspectoratesStats = {
+      'سطيف (المقر الرئيسي)': { name: 'سطيف (المقر الرئيسي)', visits: 0, violations: 0, seizuresValue: 0 },
+      'العلمة': { name: 'العلمة', visits: 0, violations: 0, seizuresValue: 0 },
+      'عين ولمان': { name: 'عين ولمان', visits: 0, violations: 0, seizuresValue: 0 },
+      'بوقاعة': { name: 'بوقاعة', visits: 0, violations: 0, seizuresValue: 0 },
+      'عين آزال': { name: 'عين آزال', visits: 0, violations: 0, seizuresValue: 0 },
+      'عين الكبيرة': { name: 'عين الكبيرة', visits: 0, violations: 0, seizuresValue: 0 },
+      'عين أرنات': { name: 'عين أرنات', visits: 0, violations: 0, seizuresValue: 0 },
+      'مطار 8 ماي 1945 الدولي': { name: 'مطار 8 ماي 1945 الدولي', visits: 0, violations: 0, seizuresValue: 0 },
+    };
 
     visits.forEach(v => {
       const isViol = v.ViolationFound === true || v.violationfound === true || v.ViolationFound == 1;
@@ -268,6 +297,7 @@ router.get('/analytics', async (req, res) => {
       const lAction = (v.LegalAction || v.legalaction || '').toString();
       const vNotes = (v.ViolationNotes || v.violationnotes || '').toString();
       const fullNotes = `${lAction} ${vNotes}`;
+      const locName = (v.LocationName || v.locationname || '').toString();
 
       if (isViol) violationsCount++;
       if (sVal > 0) {
@@ -311,14 +341,71 @@ router.get('/analytics', async (req, res) => {
       inspectorBreakdown[empId].visitsCount++;
       if (isViol) inspectorBreakdown[empId].violationsCount++;
       inspectorBreakdown[empId].seizuresValue += sVal;
+
+      // Sector breakdown
+      const rawType = (v.ShopType || v.shoptype || 'مواد غذائية عامة وتجزئة').toString().trim();
+      if (!sectorMap[rawType]) {
+        sectorMap[rawType] = { sector: rawType, visits: 0, violations: 0, seizuresValue: 0 };
+      }
+      sectorMap[rawType].visits++;
+      if (isViol) sectorMap[rawType].violations++;
+      sectorMap[rawType].seizuresValue += sVal;
+
+      // Inspectorate classification
+      let matchedInsp = 'سطيف (المقر الرئيسي)';
+      if (locName.includes('العلمة')) matchedInsp = 'العلمة';
+      else if (locName.includes('عين ولمان')) matchedInsp = 'عين ولمان';
+      else if (locName.includes('بوقاعة')) matchedInsp = 'بوقاعة';
+      else if (locName.includes('عين آزال')) matchedInsp = 'عين آزال';
+      else if (locName.includes('عين الكبيرة')) matchedInsp = 'عين الكبيرة';
+      else if (locName.includes('مطار') || locName.includes('الحدودية')) matchedInsp = 'مطار 8 ماي 1945 الدولي';
+      else if (locName.includes('عين أرنات')) matchedInsp = 'عين أرنات';
+      
+      if (inspectoratesStats[matchedInsp]) {
+        inspectoratesStats[matchedInsp].visits++;
+        if (isViol) inspectoratesStats[matchedInsp].violations++;
+        inspectoratesStats[matchedInsp].seizuresValue += sVal;
+      }
     });
+
+    // 7-day trend query for charts
+    const trendQuery = pg
+      ? `SELECT TO_CHAR("Date", 'YYYY-MM-DD') as "date",
+                COUNT(*) as "visits",
+                COUNT(CASE WHEN "ViolationFound" = true THEN 1 END) as "violations",
+                COALESCE(SUM("SeizureValue"), 0) as "seizures"
+         FROM "TrackerVisits"
+         WHERE "Date" >= CURRENT_DATE - INTERVAL '6 days'
+         GROUP BY "Date"
+         ORDER BY "Date" ASC`
+      : `SELECT Date as date,
+                COUNT(*) as visits,
+                SUM(CASE WHEN ViolationFound = 1 THEN 1 ELSE 0 END) as violations,
+                ISNULL(SUM(SeizureValue), 0) as seizures
+         FROM TrackerVisits
+         GROUP BY Date
+         ORDER BY Date ASC`;
+
+    const trendRes = await db.query(trendQuery);
+    const dailyTrend = (trendRes || []).map(r => ({
+      date: r.date || r.Date,
+      visits: parseInt(r.visits || r.Visits || 0, 10),
+      violations: parseInt(r.violations || r.Violations || 0, 10),
+      seizures: parseFloat(r.seizures || r.Seizures || 0),
+    }));
 
     const activeProgramsCount = await db.query(
       pg ? `SELECT COUNT(*) as count FROM "TrackerPrograms"` : `SELECT COUNT(*) as count FROM TrackerPrograms`
     );
 
+    const sectorBreakdown = Object.values(sectorMap).map(s => ({
+      ...s,
+      rate: s.visits > 0 ? parseFloat(((s.violations / s.visits) * 100).toFixed(1)) : 0,
+    })).sort((a, b) => b.visits - a.visits);
+
     res.json({
       selectedDate: queryDate,
+      period: effectivePeriod,
       attendance: {
         totalInspectors: targetIds.length,
         presentToday: presentCount,
@@ -335,7 +422,9 @@ router.get('/analytics', async (req, res) => {
         closureProposalsCount,
         samplesCount,
         courtReferralsCount,
+        violationRate: totalVisits > 0 ? ((violationsCount / totalVisits) * 100).toFixed(1) : '0',
         complianceRate: totalVisits > 0 ? (((totalVisits - violationsCount) / totalVisits) * 100).toFixed(1) : '100',
+        prosecutionRate: violationsCount > 0 ? ((courtReferralsCount / violationsCount) * 100).toFixed(1) : '0',
       },
       cumulativeTotals: {
         totalVisits: parseInt(cumRow.total_cumulative_visits || cumRow.TOTAL_CUMULATIVE_VISITS || 0, 10),
@@ -347,7 +436,10 @@ router.get('/analytics', async (req, res) => {
       },
       departmentBreakdown: deptStats,
       topInspectors: Object.values(inspectorBreakdown).sort((a, b) => b.visitsCount - a.visitsCount).slice(0, 5),
-      recentVisits: visits.slice(0, 15),
+      sectorBreakdown,
+      inspectorateBreakdown: inspectoratesStats,
+      dailyTrend,
+      recentVisits: visits.slice(0, 20),
       activeProgramsCount: parseInt(activeProgramsCount[0]?.count || activeProgramsCount[0]?.COUNT || 0, 10),
     });
   } catch (err) {
