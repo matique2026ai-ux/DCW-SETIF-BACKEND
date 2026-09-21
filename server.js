@@ -1462,7 +1462,11 @@ async function cleanupDuplicateEmployees() {
   const pg = isPostgres();
   try {
     if (pg) {
-      // 1. Delete duplicate rows from Employes keeping the minimum Id for each unique NumeroMatricule
+      // 1. Delete Director from Employes if present (The Director is the Ordonnateur / Supreme supervisor, not an employee subject to check-ins)
+      await db.query(`DELETE FROM "Employes" WHERE "NumeroMatricule" = 'MAT-DIR-001' OR "Service" = 'المديرية الولائية'`);
+      await db.query(`UPDATE "UtilisateursSysteme" SET "EmployeId" = NULL WHERE "NomUtilisateur" = 'directeur'`);
+
+      // 2. Delete duplicate rows from Employes keeping the minimum Id for each unique NumeroMatricule
       await db.query(`
         DELETE FROM "Employes"
         WHERE "Id" NOT IN (
@@ -1472,18 +1476,16 @@ async function cleanupDuplicateEmployees() {
         )
       `);
 
-      // 2. Clean up orphaned TrackerEmployeeAdmin rows
+      // 3. Clean up orphaned TrackerEmployeeAdmin rows
       await db.query(`
         DELETE FROM "TrackerEmployeeAdmin"
         WHERE "EmployeeId" NOT IN (SELECT "Id" FROM "Employes")
       `);
 
-      // 3. Link UtilisateursSysteme to the correct distinct Employee IDs
+      // 4. Link subordinate user accounts to the correct distinct Employee IDs
       const emps = await db.query('SELECT "Id", "NumeroMatricule" FROM "Employes"');
       for (const e of emps) {
-        if (e.NumeroMatricule === 'MAT-DIR-001') {
-          await db.query('UPDATE "UtilisateursSysteme" SET "EmployeId" = $1 WHERE "NomUtilisateur" = $2', [e.Id, 'directeur']);
-        } else if (e.NumeroMatricule === 'MAT-BUR-002') {
+        if (e.NumeroMatricule === 'MAT-BUR-002') {
           await db.query('UPDATE "UtilisateursSysteme" SET "EmployeId" = $1 WHERE "NomUtilisateur" IN (\'bureau_user\', \'chef_bureau\')', [e.Id]);
         } else if (e.NumeroMatricule === 'MAT-ADM-003') {
           await db.query('UPDATE "UtilisateursSysteme" SET "EmployeId" = $1 WHERE "NomUtilisateur" = $2', [e.Id, 'chef_administration']);
