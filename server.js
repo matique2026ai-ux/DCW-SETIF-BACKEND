@@ -1363,22 +1363,41 @@ async function seedUsers() {
 
   try {
     const adminHash = await bcrypt.hash('admin123', 10);
+    const dirHash = await bcrypt.hash('directeur123', 10);
+    const chefHash = await bcrypt.hash('chef123', 10);
+    const bureauHash = await bcrypt.hash('bureau123', 10);
 
-    const existing = await db.query(
-      pg
-        ? 'SELECT "Id" FROM "UtilisateursSysteme" WHERE LOWER("NomUtilisateur") = LOWER($1)'
-        : 'SELECT Id FROM UtilisateursSysteme WHERE LOWER(NomUtilisateur) = LOWER(?)',
-      ['tracker_admin']
-    );
+    const defaultAccounts = [
+      { username: 'tracker_admin', hash: adminHash, name: 'مدير النظام التقني', role: 5 },
+      { username: 'directeur', hash: dirHash, name: 'السيد المدير الولائي', role: 1 },
+      { username: 'chef_administration', hash: chefHash, name: 'عبد الكريم بن عيسى (رئيس مصلحة الإدارة)', role: 2 },
+      { username: 'chef_consommation', hash: chefHash, name: 'رابح بوعكاز (رئيس مصلحة قمع الغش)', role: 2 },
+      { username: 'chef_concurrence', hash: chefHash, name: 'جمال لونيس (رئيس مصلحة المنافسة)', role: 2 },
+      { username: 'djamel_lounis', hash: chefHash, name: 'جمال لونيس (رئيس مصلحة المنافسة)', role: 2 },
+      { username: 'bureau_user', hash: bureauHash, name: 'سليم منصوري (رئيس مكتب المستخدمين)', role: 3 },
+      { username: 'chef_bureau', hash: bureauHash, name: 'سليم منصوري (رئيس مكتب المستخدمين)', role: 3 },
+      { username: 'inspecteur', hash: chefHash, name: 'كمال كريبع (مفتش رئيسي لقمع الغش)', role: 4 },
+      { username: 'kamel_kribaa', hash: chefHash, name: 'كمال كريبع (مفتش رئيسي لقمع الغش)', role: 4 },
+      { username: 'yacine_zerrouki', hash: chefHash, name: 'ياسين زروقي (محقق رئيسي للمنافسة)', role: 4 },
+    ];
 
-    if (!existing || existing.length === 0) {
-      await db.query(
+    for (const acc of defaultAccounts) {
+      const existing = await db.query(
         pg
-          ? 'INSERT INTO "UtilisateursSysteme" ("NomUtilisateur","MotDePasseHash","NomComplet","Role","EstActif","DateCreation") VALUES ($1,$2,$3,5,true,NOW())'
-          : 'INSERT INTO UtilisateursSysteme (NomUtilisateur,MotDePasseHash,NomComplet,Role,EstActif,DateCreation) VALUES (?,?,?,5,1,GETDATE())',
-        ['tracker_admin', adminHash, 'مدير النظام التقني']
+          ? 'SELECT "Id" FROM "UtilisateursSysteme" WHERE LOWER("NomUtilisateur") = LOWER($1)'
+          : 'SELECT Id FROM UtilisateursSysteme WHERE LOWER(NomUtilisateur) = LOWER(?)',
+        [acc.username]
       );
-      console.log('✅ Technical Master Admin ensured: tracker_admin');
+
+      if (!existing || existing.length === 0) {
+        await db.query(
+          pg
+            ? 'INSERT INTO "UtilisateursSysteme" ("NomUtilisateur","MotDePasseHash","NomComplet","Role","EstActif","DateCreation") VALUES ($1,$2,$3,$4,true,NOW())'
+            : 'INSERT INTO UtilisateursSysteme (NomUtilisateur,MotDePasseHash,NomComplet,Role,EstActif,DateCreation) VALUES (?,?,?,?,1,GETDATE())',
+          [acc.username, acc.hash, acc.name, acc.role]
+        );
+        console.log(`✅ System account ensured: ${acc.username}`);
+      }
     }
   } catch (err) {
     console.log('seedUsers error:', err.message);
