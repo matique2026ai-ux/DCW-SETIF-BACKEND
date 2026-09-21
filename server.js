@@ -1507,7 +1507,7 @@ async function cleanupDuplicateEmployees() {
 }
 
 // 📜 Official Algerian Republic Digital Certificate Verification Endpoint (Opens immediately upon scanning QR code)
-app.get(['/verify', '/api/verify', '/certificate'], (req, res) => {
+app.all(['/verify', '/verify/', '/api/verify', '/api/verify/', '/certificate', '/certificate/'], (req, res) => {
   const { id, emp, employee, name, date, time, loc, location, lat, lng, rad, type, status } = req.query;
   const cleanId = id || 'DCW-' + Date.now().toString().slice(-6);
   const cleanEmp = emp || employee || name || 'عون رقابة وتفتيش معتمد';
