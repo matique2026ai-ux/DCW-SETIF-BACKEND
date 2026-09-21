@@ -260,7 +260,8 @@ router.get('/map-data', async (req, res) => {
 
     const allEmployees = await db.query(
       pg
-        ? `SELECT e."Id", e."NomAr", e."PrenomAr", e."Nom", e."Prenom", 
+        ? `SELECT DISTINCT ON (e."Id")
+                  e."Id", e."NomAr", e."PrenomAr", e."Nom", e."Prenom", 
                   COALESCE(a."AssignedDepartment", e."Service") as "Service", 
                   e."Grade",
                   COALESCE(a."AdministrativeStatus", 'active') as "AdministrativeStatus",
@@ -268,8 +269,13 @@ router.get('/map-data', async (req, res) => {
                   a."BrigadeName"
            FROM "Employes" e
            LEFT JOIN "TrackerEmployeeAdmin" a ON e."Id" = a."EmployeeId"
-           WHERE e."EstActif" = true`
-        : `SELECT e.Id, e.NomAr, e.PrenomAr, e.Nom, e.Prenom, 
+           WHERE e."EstActif" = true
+             AND e."NumeroMatricule" != 'MAT-DIR-001'
+             AND (e."Service" IS NULL OR e."Service" != 'المديرية الولائية')
+             AND (e."FonctionExercee" IS NULL OR e."FonctionExercee" NOT LIKE '%المدير الولائي%')
+           ORDER BY e."Id"`
+        : `SELECT DISTINCT
+                  e.Id, e.NomAr, e.PrenomAr, e.Nom, e.Prenom, 
                   COALESCE(a.AssignedDepartment, e.Service) as Service, 
                   e.Grade,
                   COALESCE(a.AdministrativeStatus, 'active') as AdministrativeStatus,
@@ -277,7 +283,10 @@ router.get('/map-data', async (req, res) => {
                   a.BrigadeName
            FROM Employes e
            LEFT JOIN TrackerEmployeeAdmin a ON e.Id = a.EmployeeId
-           WHERE e.EstActif = 1`
+           WHERE e.EstActif = 1
+             AND e.NumeroMatricule != 'MAT-DIR-001'
+             AND (e.Service IS NULL OR e.Service != 'المديرية الولائية')
+             AND (e.FonctionExercee IS NULL OR e.FonctionExercee NOT LIKE '%المدير الولائي%')`
     );
     const targetEmployees = allEmployees;
 
