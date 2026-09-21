@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 // 📜 Official Algerian Republic Digital Certificate Verification Handler
-router.all('*', (req, res) => {
+router.use((req, res) => {
   const { id, emp, employee, name, date, time, loc, location, lat, lng, rad, type, status } = req.query;
   const cleanId = id || 'DCW-' + Date.now().toString().slice(-6);
   const cleanEmp = emp || employee || name || 'عون رقابة وتفتيش معتمد';
