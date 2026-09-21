@@ -17,7 +17,8 @@ router.get('/', async (req, res) => {
     const { department, active, all, status, brigade } = req.query;
 
     const query = pg
-      ? `SELECT e."Id", e."NumeroMatricule", e."Nom", e."Prenom", e."NomAr", e."PrenomAr", e."Grade",
+      ? `SELECT DISTINCT ON (e."Id")
+                e."Id", e."NumeroMatricule", e."Nom", e."Prenom", e."NomAr", e."PrenomAr", e."Grade",
                 COALESCE(a."AssignedDepartment", e."Service") as "Service",
                 COALESCE(a."AssignedPosition", e."FonctionExercee") as "FonctionExercee",
                 e."PosteFinancier", e."EstActif",
@@ -27,8 +28,9 @@ router.get('/', async (req, res) => {
                 a."UpdatedAt"
          FROM "Employes" e
          LEFT JOIN "TrackerEmployeeAdmin" a ON e."Id" = a."EmployeeId"
-         ORDER BY e."Service", e."Nom", e."Prenom"`
-      : `SELECT e.Id, e.NumeroMatricule, e.Nom, e.Prenom, e.NomAr, e.PrenomAr, e.Grade,
+         ORDER BY e."Id", e."Service", e."Nom", e."Prenom"`
+      : `SELECT DISTINCT
+                e.Id, e.NumeroMatricule, e.Nom, e.Prenom, e.NomAr, e.PrenomAr, e.Grade,
                 COALESCE(a.AssignedDepartment, e.Service) as Service,
                 COALESCE(a.AssignedPosition, e.FonctionExercee) as FonctionExercee,
                 e.PosteFinancier, e.EstActif,
@@ -110,24 +112,53 @@ router.post('/', verifyToken, async (req, res) => {
 
     let newEmpId = null;
 
-    if (pg) {
-      const empRes = await db.query(
-        `INSERT INTO "Employes" 
-           ("NumeroMatricule", "Nom", "Prenom", "NomAr", "PrenomAr", "Grade", "Service", "FonctionExercee", "PosteFinancier", "EstActif")
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
-         RETURNING "Id"`,
-        [cleanMatricule, cleanNom, cleanPrenom, cleanNomAr, cleanPrenomAr, cleanGrade, cleanService, cleanFonction, posteFinancier || null]
-      );
-      newEmpId = empRes[0]?.Id || empRes[0]?.id;
+    // Check if employee with same matricule already exists
+    const existing = await db.query(
+      pg
+        ? 'SELECT "Id" FROM "Employes" WHERE "NumeroMatricule" = $1'
+        : 'SELECT Id FROM Employes WHERE NumeroMatricule = ?',
+      [cleanMatricule]
+    );
+
+    if (existing && existing.length > 0) {
+      newEmpId = existing[0].Id || existing[0].id;
+      if (pg) {
+        await db.query(
+          `UPDATE "Employes" SET
+             "Nom" = $1, "Prenom" = $2, "NomAr" = $3, "PrenomAr" = $4,
+             "Grade" = $5, "Service" = $6, "FonctionExercee" = $7, "PosteFinancier" = $8
+           WHERE "Id" = $9`,
+          [cleanNom, cleanPrenom, cleanNomAr, cleanPrenomAr, cleanGrade, cleanService, cleanFonction, posteFinancier || null, newEmpId]
+        );
+      } else {
+        await db.query(
+          `UPDATE Employes SET
+             Nom = ?, Prenom = ?, NomAr = ?, PrenomAr = ?,
+             Grade = ?, Service = ?, FonctionExercee = ?, PosteFinancier = ?
+           WHERE Id = ?`,
+          [cleanNom, cleanPrenom, cleanNomAr, cleanPrenomAr, cleanGrade, cleanService, cleanFonction, posteFinancier || null, newEmpId]
+        );
+      }
     } else {
-      await db.query(
-        `INSERT INTO Employes 
-           (NumeroMatricule, Nom, Prenom, NomAr, PrenomAr, Grade, Service, FonctionExercee, PosteFinancier, EstActif)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-        [cleanMatricule, cleanNom, cleanPrenom, cleanNomAr, cleanPrenomAr, cleanGrade, cleanService, cleanFonction, posteFinancier || null]
-      );
-      const lastRes = await db.query('SELECT TOP 1 Id FROM Employes ORDER BY Id DESC');
-      newEmpId = lastRes[0]?.Id || lastRes[0]?.id;
+      if (pg) {
+        const empRes = await db.query(
+          `INSERT INTO "Employes" 
+             ("NumeroMatricule", "Nom", "Prenom", "NomAr", "PrenomAr", "Grade", "Service", "FonctionExercee", "PosteFinancier", "EstActif")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
+           RETURNING "Id"`,
+          [cleanMatricule, cleanNom, cleanPrenom, cleanNomAr, cleanPrenomAr, cleanGrade, cleanService, cleanFonction, posteFinancier || null]
+        );
+        newEmpId = empRes[0]?.Id || empRes[0]?.id;
+      } else {
+        await db.query(
+          `INSERT INTO Employes 
+             (NumeroMatricule, Nom, Prenom, NomAr, PrenomAr, Grade, Service, FonctionExercee, PosteFinancier, EstActif)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+          [cleanMatricule, cleanNom, cleanPrenom, cleanNomAr, cleanPrenomAr, cleanGrade, cleanService, cleanFonction, posteFinancier || null]
+        );
+        const lastRes = await db.query('SELECT TOP 1 Id FROM Employes ORDER BY Id DESC');
+        newEmpId = lastRes[0]?.Id || lastRes[0]?.id;
+      }
     }
 
     if (!newEmpId) {

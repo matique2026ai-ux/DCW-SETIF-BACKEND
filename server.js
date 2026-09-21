@@ -1438,6 +1438,53 @@ app.all(['/api/admin/purge-all-data', '/api/clean-test-data', '/clean-test-data'
   }
 });
 
+async function cleanupDuplicateEmployees() {
+  const db = await getConnection();
+  const pg = isPostgres();
+  try {
+    if (pg) {
+      // 1. Delete duplicate rows from Employes keeping the minimum Id for each unique NumeroMatricule
+      await db.query(`
+        DELETE FROM "Employes"
+        WHERE "Id" NOT IN (
+          SELECT MIN("Id")
+          FROM "Employes"
+          GROUP BY "NumeroMatricule"
+        )
+      `);
+
+      // 2. Clean up orphaned TrackerEmployeeAdmin rows
+      await db.query(`
+        DELETE FROM "TrackerEmployeeAdmin"
+        WHERE "EmployeeId" NOT IN (SELECT "Id" FROM "Employes")
+      `);
+
+      // 3. Link UtilisateursSysteme to the correct distinct Employee IDs
+      const emps = await db.query('SELECT "Id", "NumeroMatricule" FROM "Employes"');
+      for (const e of emps) {
+        if (e.NumeroMatricule === 'MAT-DIR-001') {
+          await db.query('UPDATE "UtilisateursSysteme" SET "EmployeId" = $1 WHERE "NomUtilisateur" = $2', [e.Id, 'directeur']);
+        } else if (e.NumeroMatricule === 'MAT-BUR-002') {
+          await db.query('UPDATE "UtilisateursSysteme" SET "EmployeId" = $1 WHERE "NomUtilisateur" IN (\'bureau_user\', \'chef_bureau\')', [e.Id]);
+        } else if (e.NumeroMatricule === 'MAT-ADM-003') {
+          await db.query('UPDATE "UtilisateursSysteme" SET "EmployeId" = $1 WHERE "NomUtilisateur" = $2', [e.Id, 'chef_administration']);
+        } else if (e.NumeroMatricule === 'MAT-DQPC-004') {
+          await db.query('UPDATE "UtilisateursSysteme" SET "EmployeId" = $1 WHERE "NomUtilisateur" = $2', [e.Id, 'chef_consommation']);
+        } else if (e.NumeroMatricule === 'MAT-DCE-005') {
+          await db.query('UPDATE "UtilisateursSysteme" SET "EmployeId" = $1 WHERE "NomUtilisateur" IN (\'chef_concurrence\', \'djamel_lounis\')', [e.Id]);
+        } else if (e.NumeroMatricule === 'MAT-INSP-006') {
+          await db.query('UPDATE "UtilisateursSysteme" SET "EmployeId" = $1 WHERE "NomUtilisateur" IN (\'inspecteur\', \'kamel_kribaa\')', [e.Id]);
+        } else if (e.NumeroMatricule === 'MAT-INSP-007') {
+          await db.query('UPDATE "UtilisateursSysteme" SET "EmployeId" = $1 WHERE "NomUtilisateur" = $2', [e.Id, 'yacine_zerrouki']);
+        }
+      }
+      console.log('✅ Employee duplicates cleaned up and linked to users.');
+    }
+  } catch (err) {
+    console.log('cleanupDuplicateEmployees notice:', err.message);
+  }
+}
+
 async function start() {
   // Bind port immediately so Render / cloud health checks pass instantly
   app.listen(PORT, () => {
@@ -1458,6 +1505,7 @@ async function start() {
     }
 
     await ensureTables();
+    await cleanupDuplicateEmployees();
     await seedUsers();
   } catch (err) {
     console.error('⚠️ Startup database initialization warning:', err.message);
