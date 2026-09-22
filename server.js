@@ -1088,9 +1088,16 @@ app.all(['/api/clean-test-data', '/clean-test-data', '/api/settings/clean-test-d
 });
 
 app.get('/api/health', (req, res) => {
+  let dbHost = 'none';
+  try {
+    if (process.env.DATABASE_URL) {
+      dbHost = new URL(process.env.DATABASE_URL).host;
+    }
+  } catch (_) {}
   res.json({
     status: 'ok',
-    message: 'DCW-SETIF-TRACKER API v3.1.0-cancel-checkout',
+    version: 'v3.3.0-clean-production',
+    dbHost: dbHost,
     timezone: 'Africa/Algiers (UTC+1)',
     algeriaDate: getTodayAlgeria(),
     algeriaTime: getNowAlgeriaIso(),
