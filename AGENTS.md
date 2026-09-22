@@ -7,6 +7,7 @@
 > **مستودع الخادم (Node.js/Express/PostgreSQL)**: [DCW-SETIF-BACKEND](https://github.com/matique2026ai-ux/DCW-SETIF-BACKEND) (الفرع الحالي: `main`)
 > **رابط المنصة الحية (Render Web App)**: [dcw-setif-tracker.onrender.com](https://dcw-setif-tracker.onrender.com)
 > **السيرفر السحابي الحي (Render Backend API)**: `https://drh-setif-api.onrender.com/api`
+> **معرف النشر الأخير على Render**: `dep-dap3835g1s2s7398pl10` (Web) | `dep-dap382jtqb8s73f66tjg` (API)
 > **عداد إصدارات APK للتطبيقات الميدانية**: الإصدار الحالي المبني والمُسلَّم: `v1.0.4+5` | الإصدار القادم: `v1.0.5+6`
 
 ---
