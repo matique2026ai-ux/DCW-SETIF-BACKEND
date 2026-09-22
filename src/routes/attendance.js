@@ -288,10 +288,6 @@ router.get('/map-data', async (req, res) => {
              AND (e.Service IS NULL OR e.Service != 'المديرية الولائية')
              AND (e.FonctionExercee IS NULL OR e.FonctionExercee NOT LIKE '%المدير الولائي%')`
     );
-    const TARGET_DEPARTMENTS = [
-      'مصلحة المنافسة والتحقيقات الاقتصادية',
-      'مصلحة حماية المستهلك وقمع الغش',
-    ];
     const targetEmployees = allEmployees.filter(e => {
       const s = (e.Service || e.service || '').toString();
       return s && TARGET_DEPARTMENTS.some(d => s.includes(d));
