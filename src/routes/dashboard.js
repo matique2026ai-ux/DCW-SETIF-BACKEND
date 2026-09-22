@@ -368,14 +368,37 @@ router.get('/analytics', async (req, res) => {
       }
     });
 
-    // 7-day trend query for charts
+    // Dynamic trend query for charts based on timeframe
+    let trendCondition = pg ? `"Date" >= CURRENT_DATE - INTERVAL '6 days'` : 'Date >= DATEADD(day, -6, GETDATE())';
+    let trendParams = [];
+
+    if (effectivePeriod === 'week' || effectivePeriod === 'today' || effectivePeriod === 'custom_date') {
+      const d = new Date(queryDate);
+      d.setDate(d.getDate() - 6);
+      const start = d.toISOString().split('T')[0];
+      trendCondition = pg ? `"Date" >= $1 AND "Date" <= $2` : `Date >= ? AND Date <= ?`;
+      trendParams = [start, queryDate];
+    } else if (effectivePeriod === 'month') {
+      const d = new Date(queryDate);
+      d.setDate(d.getDate() - 29);
+      const start = d.toISOString().split('T')[0];
+      trendCondition = pg ? `"Date" >= $1 AND "Date" <= $2` : `Date >= ? AND Date <= ?`;
+      trendParams = [start, queryDate];
+    } else if (startDate && endDate) {
+      trendCondition = pg ? `"Date" >= $1 AND "Date" <= $2` : `Date >= ? AND Date <= ?`;
+      trendParams = [startDate, endDate];
+    } else if (effectivePeriod === 'all' || effectivePeriod === 'cumulative') {
+      trendCondition = pg ? `"Date" >= CURRENT_DATE - INTERVAL '13 days'` : 'Date >= DATEADD(day, -13, GETDATE())';
+      trendParams = [];
+    }
+
     const trendQuery = pg
       ? `SELECT TO_CHAR("Date", 'YYYY-MM-DD') as "date",
                 COUNT(*) as "visits",
                 COUNT(CASE WHEN "ViolationFound" = true THEN 1 END) as "violations",
                 COALESCE(SUM("SeizureValue"), 0) as "seizures"
          FROM "TrackerVisits"
-         WHERE "Date" >= CURRENT_DATE - INTERVAL '6 days'
+         WHERE ${trendCondition}
          GROUP BY "Date"
          ORDER BY "Date" ASC`
       : `SELECT Date as date,
@@ -383,10 +406,11 @@ router.get('/analytics', async (req, res) => {
                 SUM(CASE WHEN ViolationFound = 1 THEN 1 ELSE 0 END) as violations,
                 ISNULL(SUM(SeizureValue), 0) as seizures
          FROM TrackerVisits
+         WHERE ${trendCondition}
          GROUP BY Date
          ORDER BY Date ASC`;
 
-    const trendRes = await db.query(trendQuery);
+    const trendRes = await db.query(trendQuery, trendParams);
     const dailyTrend = (trendRes || []).map(r => ({
       date: r.date || r.Date,
       visits: parseInt(r.visits || r.Visits || 0, 10),
