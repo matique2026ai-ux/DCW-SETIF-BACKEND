@@ -1043,25 +1043,44 @@ app.use('/api/inquiries', inquiryRoutes);
 app.use('/api/settings', settingRoutes);
 app.use('/api/means', meansRoutes);
 
-// Reset / Clean test attendance for fresh live demonstration
+// Reset / Clean ALL transactional data for a fresh real-world start
 app.all(['/api/clean-test-data', '/clean-test-data', '/api/settings/clean-test-data'], async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();
     if (pg) {
+      // جداول تشغيلية فرعية أولاً (تعتمد على الرئيسية)
+      await db.query('TRUNCATE TABLE "TrackerJustifications" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerAbsences" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerDeductions" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerInquiries" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerVehicleMissions" RESTART IDENTITY CASCADE');
+      // جداول رئيسية
       await db.query('TRUNCATE TABLE "TrackerVisits" RESTART IDENTITY CASCADE');
       await db.query('TRUNCATE TABLE "TrackerAttendance" RESTART IDENTITY CASCADE');
-      await db.query('TRUNCATE TABLE "TrackerDeductions" RESTART IDENTITY CASCADE');
-      await db.query('TRUNCATE TABLE "TrackerAbsences" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerPrograms" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerEquipments" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerVehicles" RESTART IDENTITY CASCADE');
     } else {
+      await db.query('DELETE FROM TrackerJustifications');
+      await db.query('DELETE FROM TrackerAbsences');
+      await db.query('DELETE FROM TrackerDeductions');
+      await db.query('DELETE FROM TrackerInquiries');
+      await db.query('DELETE FROM TrackerVehicleMissions');
       await db.query('DELETE FROM TrackerVisits');
       await db.query('DELETE FROM TrackerAttendance');
-      await db.query('DELETE FROM TrackerDeductions');
-      await db.query('DELETE FROM TrackerAbsences');
+      await db.query('DELETE FROM TrackerPrograms');
+      await db.query('DELETE FROM TrackerEquipments');
+      await db.query('DELETE FROM TrackerVehicles');
     }
     res.json({
       success: true,
-      message: '✅ تم تصفير جميع سجلات الحضور والمعاينات الوهمية السابقة بنجاح. يمكنك الآن بدء البث الحي الحقيقي بهاتفك!',
+      message: '✅ تم تصفير شامل لقاعدة البيانات: الحضور، المعاينات، البرامج، الغيابات، الخصومات، الاستفسارات، المركبات، والمهام. المنظومة جاهزة للاستخدام الحقيقي اليوم!',
+      cleared: [
+        'TrackerVisits', 'TrackerAttendance', 'TrackerAbsences',
+        'TrackerDeductions', 'TrackerInquiries', 'TrackerJustifications',
+        'TrackerPrograms', 'TrackerEquipments', 'TrackerVehicles', 'TrackerVehicleMissions'
+      ]
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
