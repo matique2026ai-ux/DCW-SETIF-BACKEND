@@ -1777,10 +1777,13 @@ async function start() {
     await ensureTables();
     await cleanupDuplicateEmployees();
     await seedUsers();
-    await seedOperationalFieldData();
+    // ⛔ seedOperationalFieldData() تم إيقافها نهائياً — البيانات تأتي فقط من الميدان الحقيقي
+    // await seedOperationalFieldData();
+    console.log('✅ السيرفر جاهز للاستخدام الحقيقي — لا بيانات وهمية.');
   } catch (err) {
     console.error('⚠️ Startup database initialization warning:', err.message);
   }
 }
 
 start();
+
