@@ -1577,7 +1577,7 @@ app.all(['/api/admin/purge-all-data', '/api/clean-test-data', '/clean-test-data'
     await seedUsers();
     res.json({
       success: true,
-      message: '✅ تم تصفير وحذف جميع البيانات الوهمية السابقة بنجاح. النظام الآن برصيد 0 موظفين و0 معاينات وحساب الأدمن الوحيد.',
+      message: '✅ تمت إعادة تهيئة وتصفير البيانات التشغيلية السابقة بنجاح. النظام الآن جاهز لبدء دورة العمل الرقابية.',
     });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في تفريغ قاعدة البيانات: ' + err.message });
