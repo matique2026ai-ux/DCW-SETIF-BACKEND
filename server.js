@@ -1053,7 +1053,7 @@ const handlePurgeAllData = async (req, res) => {
       await db.query('TRUNCATE TABLE "Employes" RESTART IDENTITY CASCADE');
       // تفريغ كافة حسابات المستخدمين عدا حساب مدير النظام التقني المحمي
       await db.query('DELETE FROM "UtilisateursSysteme" WHERE LOWER("NomUtilisateur") != \'tracker_admin\'');
-      await db.query('UPDATE "UtilisateursSysteme" SET "EmployeeId" = NULL WHERE LOWER("NomUtilisateur") = \'tracker_admin\'');
+      await db.query('UPDATE "UtilisateursSysteme" SET "EmployeeId" = NULL, "DeviceId" = NULL, "DeviceName" = NULL WHERE LOWER("NomUtilisateur") = \'tracker_admin\'');
     } else {
       await db.query('DELETE FROM TrackerJustifications');
       await db.query('DELETE FROM TrackerAbsences');
@@ -1068,7 +1068,7 @@ const handlePurgeAllData = async (req, res) => {
       await db.query('DELETE FROM TrackerVehicles');
       await db.query('DELETE FROM Employes');
       await db.query('DELETE FROM UtilisateursSysteme WHERE LOWER(NomUtilisateur) != \'tracker_admin\'');
-      await db.query('UPDATE UtilisateursSysteme SET EmployeeId = NULL WHERE LOWER(NomUtilisateur) = \'tracker_admin\'');
+      await db.query('UPDATE UtilisateursSysteme SET EmployeeId = NULL, DeviceId = NULL, DeviceName = NULL WHERE LOWER(NomUtilisateur) = \'tracker_admin\'');
     }
     await seedUsers();
     res.json({
