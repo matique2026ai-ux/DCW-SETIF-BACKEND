@@ -1546,6 +1546,7 @@ async function linkExistingUsersToEmployees() {
           await db.query(`UPDATE "TrackerAttendance" SET "EmployeeId" = $1 WHERE "EmployeeId" = $2`, [empId, uId]);
           await db.query(`UPDATE "TrackerVisits" SET "EmployeeId" = $1 WHERE "EmployeeId" = $2`, [empId, uId]);
         }
+      }
       console.log('✅ User accounts linked to employee registry and attendance records synced.');
     }
   } catch (err) {
