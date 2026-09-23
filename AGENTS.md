@@ -7,8 +7,8 @@
 > **مستودع الخادم (Node.js/Express/PostgreSQL)**: [DCW-SETIF-BACKEND](https://github.com/matique2026ai-ux/DCW-SETIF-BACKEND) (الفرع الحالي: `main`)
 > **رابط المنصة الحية (Render Web App)**: [dcw-setif-tracker.onrender.com](https://dcw-setif-tracker.onrender.com)
 > **السيرفر السحابي الحي (Render Backend API)**: `https://drh-setif-api.onrender.com/api`
-> **معرف النشر الأخير على Render**: `dep-dapq0rs9v7es739h8je0` (Web) | `dep-dapq0jvlk1mc73cgvr70` (API)
-> **عداد إصدارات APK للتطبيقات الميدانية**: الإصدار الحالي المبني والمُسلَّم: `v1.0.4+5` | الإصدار القادم: `v1.0.5+6`
+> **معرف النشر الأخير على Render**: `dep-dapq0rs9v7es739h8je0` (Web) | `dep-dapq3knlk1mc73ch9qq0` (API)
+> **عداد إصدارات APK للتطبيقات الميدانية**: الإصدار الحالي المبني والمُسلَّم: `v1.0.5+6` | الإصدار القادم: `v1.0.6+7`
 
 ---
 
@@ -144,8 +144,9 @@
 
 ## ⚠️ تعليمات صارمة غير قابلة للنقاش للوكلاء والمطورين اللاحقين (STRICT AGENT DIRECTIVES)
 
-1. **🚫 منع توليد حزمة الأندرويد APK نهائياً والبناء الإلزامي للويب:**
+1. **🚫 ضوابط حزمة الأندرويد APK ومكان حفظها الإلزامي (Local APK Priority):**
    * **ممنوع قطعياً تشغيل `flutter build apk` أو توليد أي ملف بصيغة `.apk` تحت أي ظرف، إلا بطلب كتابي صريح ومباشر من المستخدم** (التوجيه الصريح: *"لا تولد تطبيق ابيكي فقط حتى امرك"*).
+   * **📁 الأولوية القصوى للمستخدم عند طلب بناء APK**: هو توفير وحفظ ملف الـ APK محلياً في مجلد المشروع الرئيسي مباشرة (`DCW-SETIF-TRACKER/DCW-SETIF-TRACKER.apk` وفي المجلد الرئيسي `Nouveau dossier`) حتى يسهل عليه نسخه فوراً إلى هاتفه بالـ USB أو مشاركته، وتوفيره على السيرفر كخيار إضافي.
    * **إلزامي وصارم**: أي تعديل على كود الواجهة الأمامية (Frontend) يجب أن يعقبه فوراً وقبل أي `git push` إعادة بناء كاملة لنسخة الويب عبر:
      `flutter build web --release --no-tree-shake-icons`
      ثم عمل `git add build/web` و `git commit` ودفعها (`push`) إلى GitHub مع استدعاء خطاف Render Deploy Hook.
