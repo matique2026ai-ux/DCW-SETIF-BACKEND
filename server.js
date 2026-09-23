@@ -50,7 +50,7 @@ app.get('/', (req, res) => {
 });
 
 // Direct change-password endpoint fallback
-app.post(['/api/auth/change-password', '/api/change-password'], async (req, res) => {
+const handlePasswordChange = async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     let decoded = {};
@@ -124,10 +124,12 @@ app.post(['/api/auth/change-password', '/api/change-password'], async (req, res)
     console.error('Change password direct error:', err.message);
     res.status(500).json({ error: 'خطأ في الخادم أثناء تغيير كلمة المرور' });
   }
-});
+};
+app.post('/api/auth/change-password', handlePasswordChange);
+app.post('/api/change-password', handlePasswordChange);
 
 // Direct change-master-pin endpoint fallback
-app.post(['/api/auth/change-master-pin', '/api/change-master-pin'], async (req, res) => {
+const handleMasterPinChange = async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     let decoded = {};
@@ -195,7 +197,9 @@ app.post(['/api/auth/change-master-pin', '/api/change-master-pin'], async (req, 
     console.error('Change master pin direct error:', err.message);
     res.status(500).json({ error: 'خطأ أثناء تحديث رمز الأمان' });
   }
-});
+};
+app.post('/api/auth/change-master-pin', handleMasterPinChange);
+app.post('/api/change-master-pin', handleMasterPinChange);
 
 // ROLE_MAP constant for user queries
 const ROLE_MAP = {
@@ -1027,7 +1031,7 @@ app.use('/api/settings', settingRoutes);
 app.use('/api/means', meansRoutes);
 
 // Full Database Purge & Clean Endpoint (Zero Out All Data Except tracker_admin)
-app.all(['/api/admin/purge-all-data', '/api/clean-test-data', '/clean-test-data', '/api/settings/clean-test-data'], async (req, res) => {
+const handlePurgeAllData = async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();
@@ -1081,7 +1085,11 @@ app.all(['/api/admin/purge-all-data', '/api/clean-test-data', '/clean-test-data'
     console.error('Purge error:', err.message);
     res.status(500).json({ error: 'خطأ أثناء تصفير قاعدة البيانات: ' + err.message });
   }
-});
+};
+app.all('/api/admin/purge-all-data', handlePurgeAllData);
+app.all('/api/clean-test-data', handlePurgeAllData);
+app.all('/clean-test-data', handlePurgeAllData);
+app.all('/api/settings/clean-test-data', handlePurgeAllData);
 
 app.get('/api/health', (req, res) => {
   let dbHost = 'none';
