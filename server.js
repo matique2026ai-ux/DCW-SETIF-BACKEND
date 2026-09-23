@@ -1549,33 +1549,41 @@ app.all(['/api/admin/purge-all-data', '/api/clean-test-data', '/clean-test-data'
   }
 });
 
-async function cleanupDuplicateEmployees() {
+async function linkExistingUsersToEmployees() {
   const db = await getConnection();
   const pg = isPostgres();
   try {
     if (pg) {
-      // 1. Ensure Director is not in Employes (The Director is the Ordonnateur / Supreme supervisor)
-      await db.query(`DELETE FROM "Employes" WHERE "NumeroMatricule" = 'MAT-DIR-001' OR "Service" = 'المديرية الولائية'`);
-      await db.query(`UPDATE "UtilisateursSysteme" SET "EmployeeId" = NULL WHERE "NomUtilisateur" = 'directeur'`);
-
-      // 2. Delete duplicate rows from Employes keeping the minimum Id for each unique NumeroMatricule
+      // 1. Link standard users to employee registry if EmployeeId is not yet assigned
       await db.query(`
-        DELETE FROM "Employes"
-        WHERE "Id" NOT IN (
-          SELECT MIN("Id")
-          FROM "Employes"
-          GROUP BY "NumeroMatricule"
-        )
+        UPDATE "UtilisateursSysteme" u
+        SET "EmployeeId" = e."Id"
+        FROM "Employes" e
+        WHERE u."EmployeeId" IS NULL
+          AND (
+            (LOWER(u."NomUtilisateur") IN ('inspecteur', 'kamel_kribaa') AND (e."NomAr" LIKE '%كريبع%' OR e."Nom" LIKE '%kribaa%'))
+            OR (LOWER(u."NomUtilisateur") IN ('djamel_lounis', 'chef_concurrence') AND (e."NomAr" LIKE '%لونيس%' OR e."Nom" LIKE '%lounis%'))
+            OR (LOWER(u."NomUtilisateur") = 'chef_consommation' AND (e."NomAr" LIKE '%بوعكاز%' OR e."Nom" LIKE '%bouakkaz%'))
+            OR (LOWER(u."NomUtilisateur") = 'chef_administration' AND (e."NomAr" LIKE '%بن عيسى%' OR e."Nom" LIKE '%benaissa%'))
+            OR (LOWER(u."NomUtilisateur") IN ('bureau_user', 'chef_bureau') AND (e."NomAr" LIKE '%منصوري%' OR e."Nom" LIKE '%mansouri%'))
+            OR (LOWER(u."NomUtilisateur") = 'yacine_zerrouki' AND (e."NomAr" LIKE '%زروقي%' OR e."Nom" LIKE '%zerrouki%'))
+          )
       `);
 
-      // 3. Clean up orphaned TrackerEmployeeAdmin rows
-      await db.query(`
-        DELETE FROM "TrackerEmployeeAdmin"
-        WHERE "EmployeeId" NOT IN (SELECT "Id" FROM "Employes")
-      `);
+      // 2. Fix any attendance or visits recorded with user.Id instead of real EmployeeId
+      const users = await db.query(`SELECT "Id", "EmployeeId" FROM "UtilisateursSysteme" WHERE "EmployeeId" IS NOT NULL`);
+      for (const u of users) {
+        const uId = u.Id || u.id;
+        const empId = u.EmployeeId || u.employeeid;
+        if (uId && empId && uId !== empId) {
+          await db.query(`UPDATE "TrackerAttendance" SET "EmployeeId" = $1 WHERE "EmployeeId" = $2`, [empId, uId]);
+          await db.query(`UPDATE "TrackerVisits" SET "EmployeeId" = $1 WHERE "EmployeeId" = $2`, [empId, uId]);
+        }
+      }
+      console.log('✅ User accounts linked to employee registry and attendance records synced.');
     }
   } catch (err) {
-    console.log('cleanupDuplicateEmployees notice:', err.message);
+    console.log('linkExistingUsersToEmployees error:', err.message);
   }
 }
 
@@ -1602,10 +1610,8 @@ async function start() {
     }
 
     await ensureTables();
-    await cleanupDuplicateEmployees();
+    await linkExistingUsersToEmployees();
     await seedUsers();
-    // ⛔ seedOperationalFieldData() تم إيقافها نهائياً — البيانات تأتي فقط من الميدان الحقيقي
-    // await seedOperationalFieldData();
     console.log('✅ السيرفر جاهز للاستخدام الحقيقي — لا بيانات وهمية.');
   } catch (err) {
     console.error('⚠️ Startup database initialization warning:', err.message);

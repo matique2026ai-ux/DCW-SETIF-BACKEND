@@ -288,10 +288,7 @@ router.get('/map-data', async (req, res) => {
              AND (e.Service IS NULL OR e.Service != 'المديرية الولائية')
              AND (e.FonctionExercee IS NULL OR e.FonctionExercee NOT LIKE '%المدير الولائي%')`
     );
-    const targetEmployees = allEmployees.filter(e => {
-      const s = (e.Service || e.service || '').toString();
-      return s && TARGET_DEPARTMENTS.some(d => s.includes(d));
-    });
+    const targetEmployees = allEmployees;
 
     const attendance = await db.query(
       pg
@@ -479,10 +476,10 @@ router.get('/map-data', async (req, res) => {
         checkInTime: att ? att.CheckInTime : null,
         checkOutTime: att ? att.CheckOutTime : null,
         lateMinutes: todayLateMinutes,
-        latitude: currentLat,
-        longitude: currentLng,
-        checkInLatitude: allowLiveTracking && att ? att.CheckInLatitude : null,
-        checkInLongitude: allowLiveTracking && att ? att.CheckInLongitude : null,
+        latitude: currentLat != null ? parseFloat(currentLat) : null,
+        longitude: currentLng != null ? parseFloat(currentLng) : null,
+        checkInLatitude: allowLiveTracking && att && att.CheckInLatitude != null ? parseFloat(att.CheckInLatitude) : null,
+        checkInLongitude: allowLiveTracking && att && att.CheckInLongitude != null ? parseFloat(att.CheckInLongitude) : null,
         checkInPhoto: att ? att.CheckInPhoto : null,
         notes: att ? att.Notes : null,
         visitsCount: empVisits.length,
@@ -521,8 +518,26 @@ router.post('/checkin', async (req, res) => {
       deviceId, DeviceId
     } = req.body;
 
-    const finalEmpId = employeeId || EmployeeId || jwtEmployeeId;
+    let finalEmpId = employeeId || EmployeeId || jwtEmployeeId;
     if (!finalEmpId) return res.status(400).json({ error: 'رقم الموظف مطلوب' });
+
+    const db = await getConnection();
+    const pg = isPostgres();
+    const today = getTodayAlgeria();
+
+    // Auto-resolve real EmployeeId from UtilisateursSysteme if finalEmpId was the user's login ID
+    const userCheck = await db.query(
+      pg
+        ? 'SELECT "Id", "EmployeeId", "NomComplet", "NomUtilisateur" FROM "UtilisateursSysteme" WHERE "Id" = $1 OR "EmployeeId" = $1'
+        : 'SELECT Id, EmployeeId, NomComplet, NomUtilisateur FROM UtilisateursSysteme WHERE Id = ? OR EmployeeId = ?',
+      [finalEmpId, finalEmpId]
+    );
+
+    if (userCheck && userCheck.length > 0) {
+      if (userCheck[0].EmployeeId || userCheck[0].employeeid) {
+        finalEmpId = userCheck[0].EmployeeId || userCheck[0].employeeid;
+      }
+    }
 
     const finalLat = latitude !== undefined ? latitude : Latitude;
     const finalLng = longitude !== undefined ? longitude : Longitude;
@@ -530,16 +545,12 @@ router.post('/checkin', async (req, res) => {
     const finalNotes = notes || Notes || null;
     const finalDeviceId = deviceId || DeviceId || jwtDeviceId || null;
 
-    const db = await getConnection();
-    const pg = isPostgres();
-    const today = getTodayAlgeria();
-
     // 1️⃣ Device Security Verification (Anti-Spoofing):
     const userRows = await db.query(
       pg
-        ? `SELECT "Id", "DeviceId" FROM "UtilisateursSysteme" WHERE "EmployeeId" = $1`
-        : `SELECT Id, DeviceId FROM UtilisateursSysteme WHERE EmployeeId = ?`,
-      [finalEmpId]
+        ? `SELECT "Id", "DeviceId" FROM "UtilisateursSysteme" WHERE "EmployeeId" = $1 OR "Id" = $1`
+        : `SELECT Id, DeviceId FROM UtilisateursSysteme WHERE EmployeeId = ? OR Id = ?`,
+      [finalEmpId, finalEmpId]
     );
     if (userRows && userRows.length > 0) {
       const boundDev = userRows[0].DeviceId || userRows[0].deviceid;
