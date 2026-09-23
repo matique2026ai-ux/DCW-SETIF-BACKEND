@@ -97,7 +97,7 @@ router.post('/login', async (req, res) => {
             requiresMasterPin: true,
           });
         }
-        if (masterPin !== requiredPin && masterPin !== 'admin123' && masterPin !== '202600') {
+        if (masterPin !== requiredPin) {
           return res.status(403).json({
             error: 'رمز الأمان السري (Master PIN) غير صحيح ❌ يرجى التأكد وإعادة المحاولة.',
             requiresMasterPin: true,
@@ -399,7 +399,7 @@ router.post(['/change-master-pin', '/update-master-pin'], async (req, res) => {
         authorized = true;
       }
     }
-    if (!authorized && currentPin && (currentPin === adminUser.masterPin || currentPin === '202600')) {
+    if (!authorized && currentPin && currentPin === (adminUser.masterPin || '202600')) {
       authorized = true;
     }
 

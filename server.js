@@ -171,7 +171,7 @@ app.post(['/api/auth/change-master-pin', '/api/change-master-pin'], async (req, 
         authorized = true;
       }
     }
-    if (!authorized && currentPin && (currentPin === existingPin || currentPin === '202600')) {
+    if (!authorized && currentPin && currentPin === existingPin) {
       authorized = true;
     }
 
