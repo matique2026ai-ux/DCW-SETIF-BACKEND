@@ -53,54 +53,8 @@ router.post('/login', async (req, res) => {
       [rawUsername]
     );
 
-    // If not found, check if username is in format emp.X or dcw19.X or if employee exists
     if (!users || users.length === 0) {
-      let empIdMatch = null;
-      if (rawUsername.startsWith('emp.') || rawUsername.startsWith('dcw19.') || rawUsername.startsWith('insp19.')) {
-        const parts = rawUsername.split('.');
-        if (parts.length > 1) {
-          empIdMatch = parseInt(parts[1], 10);
-        }
-      } else if (/^\d+$/.test(rawUsername)) {
-        empIdMatch = parseInt(rawUsername, 10);
-      }
-
-      const emps = await db.query(
-        pg
-          ? 'SELECT * FROM "Employes" WHERE "Id" = $1 OR LOWER("Nom") = LOWER($2) OR LOWER(CONCAT("Prenom", \'.\', "Nom")) = LOWER($2)'
-          : 'SELECT * FROM Employes WHERE Id = ? OR LOWER(Nom) = LOWER(?)',
-        [empIdMatch || 0, rawUsername]
-      );
-
-      if (emps && emps.length > 0) {
-        const emp = emps[0];
-        const empId = emp.Id || emp.id;
-        const rawNom = (emp.Nom || emp.nom || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-        const rawPrenom = (emp.Prenom || emp.prenom || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-        const cleanUser = rawPrenom && rawNom ? `${rawPrenom}.${rawNom}` : `emp.${empId}`;
-        const fullNameAr = `${emp.NomAr || emp.nomar || emp.Nom || ''} ${emp.PrenomAr || emp.prenomar || emp.Prenom || ''}`.trim() || `مفتش #${empId}`;
-        const defaultHash = await bcrypt.hash('chef123', 10);
-
-        await db.query(
-          pg
-            ? `INSERT INTO "UtilisateursSysteme" ("NomUtilisateur", "MotDePasseHash", "NomComplet", "Role", "EstActif", "DateCreation", "EmployeeId")
-               VALUES ($1, $2, $3, 4, true, NOW(), $4)`
-            : `INSERT INTO UtilisateursSysteme (NomUtilisateur, MotDePasseHash, NomComplet, Role, EstActif, DateCreation, EmployeeId)
-               VALUES (?, ?, ?, 4, 1, GETDATE(), ?)`,
-          [cleanUser, defaultHash, fullNameAr, empId]
-        );
-
-        users = await db.query(
-          pg
-            ? 'SELECT * FROM "UtilisateursSysteme" WHERE "EmployeeId" = $1'
-            : 'SELECT * FROM UtilisateursSysteme WHERE EmployeeId = ?',
-          [empId]
-        );
-      }
-    }
-
-    if (!users || users.length === 0) {
-      return res.status(401).json({ error: 'مستخدم غير موجود' });
+      return res.status(401).json({ error: 'اسم المستخدم غير موجود أو الحساب غير مفعّل' });
     }
 
     const u = normalizeUser(users[0]);
@@ -356,25 +310,7 @@ router.post('/change-password', async (req, res) => {
     );
 
     if (!users || users.length === 0) {
-      // Check if employee exists and create/update user entry in UtilisateursSysteme
-      const emps = await db.query(
-        pg
-          ? 'SELECT * FROM "Employes" WHERE "Id" = $1 OR LOWER("Nom") = LOWER($2)'
-          : 'SELECT * FROM Employes WHERE Id = ? OR LOWER(Nom) = LOWER(?)',
-        [decoded.employeeId || decoded.id || 0, decoded.username || '']
-      );
-      if (emps && emps.length > 0) {
-        const emp = emps[0];
-        const newHash = await bcrypt.hash(newPassword, 10);
-        await db.query(
-          pg
-            ? 'INSERT INTO "UtilisateursSysteme" ("NomUtilisateur", "MotDePasseHash", "NomComplet", "Role", "EstActif", "EmployeeId") VALUES ($1, $2, $3, 4, true, $4)'
-            : 'INSERT INTO UtilisateursSysteme (NomUtilisateur, MotDePasseHash, NomComplet, Role, EstActif, EmployeeId) VALUES (?, ?, ?, 4, 1, ?)',
-          [decoded.username || `emp.${emp.Id || emp.id}`, newHash, `${emp.NomAr || emp.Nom} ${emp.PrenomAr || emp.Prenom}`.trim(), emp.Id || emp.id]
-        );
-        return res.json({ success: true, message: 'تم تغيير كلمة المرور بنجاح ✅' });
-      }
-      return res.status(404).json({ error: 'المستخدم غير موجود' });
+      return res.status(404).json({ error: 'المستخدم غير موجود أو الحساب غير مفعّل' });
     }
 
     const user = users[0];
@@ -635,7 +571,7 @@ router.post('/users/:id/reset-password', async (req, res) => {
 
     await db.query(updateQuery, pg ? [hash, userId] : [hash, userId, userId]);
 
-    // If user record wasn't present, check Employes and create it
+    // Check if user exists
     const check = await db.query(
       pg
         ? `SELECT "Id" FROM "UtilisateursSysteme" WHERE "Id" = $1 OR "EmployeeId" = $1`
@@ -644,19 +580,7 @@ router.post('/users/:id/reset-password', async (req, res) => {
     );
 
     if (!check || check.length === 0) {
-      const emps = await db.query(
-        pg ? `SELECT * FROM "Employes" WHERE "Id" = $1` : `SELECT * FROM Employes WHERE Id = ?`,
-        [userId]
-      );
-      if (emps && emps.length > 0) {
-        const emp = emps[0];
-        await db.query(
-          pg
-            ? `INSERT INTO "UtilisateursSysteme" ("NomUtilisateur", "MotDePasseHash", "NomComplet", "Role", "EstActif", "EmployeeId") VALUES ($1, $2, $3, 4, true, $4)`
-            : `INSERT INTO UtilisateursSysteme (NomUtilisateur, MotDePasseHash, NomComplet, Role, EstActif, EmployeeId) VALUES (?, ?, ?, 4, 1, ?)`,
-          [`emp.${emp.Id || emp.id}`, hash, `${emp.NomAr || emp.Nom} ${emp.PrenomAr || emp.Prenom}`.trim(), emp.Id || emp.id]
-        );
-      }
+      return res.status(404).json({ error: 'حساب المستخدم غير موجود في النظام' });
     }
 
     res.json({ success: true, message: 'تمت إعادة تعيين كلمة المرور بنجاح ✅' });

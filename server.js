@@ -82,24 +82,7 @@ app.post(['/api/auth/change-password', '/api/change-password'], async (req, res)
     );
 
     if (!users || users.length === 0) {
-      const emps = await db.query(
-        pg
-          ? 'SELECT * FROM "Employes" WHERE "Id" = $1 OR LOWER("Nom") = LOWER($2)'
-          : 'SELECT * FROM Employes WHERE Id = ? OR LOWER(Nom) = LOWER(?)',
-        [decoded.employeeId || decoded.id || 0, decoded.username || '']
-      );
-      if (emps && emps.length > 0) {
-        const emp = emps[0];
-        const newHash = await bcrypt.hash(newPassword, 10);
-        await db.query(
-          pg
-            ? 'INSERT INTO "UtilisateursSysteme" ("NomUtilisateur", "MotDePasseHash", "NomComplet", "Role", "EstActif", "EmployeeId") VALUES ($1, $2, $3, 4, true, $4)'
-            : 'INSERT INTO UtilisateursSysteme (NomUtilisateur, MotDePasseHash, NomComplet, Role, EstActif, EmployeeId) VALUES (?, ?, ?, 4, 1, ?)',
-          [decoded.username || `emp.${emp.Id || emp.id}`, newHash, `${emp.NomAr || emp.Nom} ${emp.PrenomAr || emp.Prenom}`.trim(), emp.Id || emp.id]
-        );
-        return res.json({ success: true, message: 'تم تغيير كلمة المرور بنجاح ✅' });
-      }
-      return res.status(404).json({ error: 'المستخدم غير موجود' });
+      return res.status(404).json({ error: 'حساب المستخدم غير موجود في النظام أو غير مفعّل' });
     }
 
     const user = users[0];
@@ -1490,41 +1473,23 @@ async function seedUsers() {
 
   try {
     const adminHash = await bcrypt.hash('admin123', 10);
-    const dirHash = await bcrypt.hash('directeur123', 10);
-    const chefHash = await bcrypt.hash('chef123', 10);
-    const bureauHash = await bcrypt.hash('bureau123', 10);
 
-    const defaultAccounts = [
-      { username: 'tracker_admin', hash: adminHash, name: 'مدير النظام التقني', role: 5 },
-      { username: 'directeur', hash: dirHash, name: 'السيد المدير الولائي', role: 1 },
-      { username: 'chef_administration', hash: chefHash, name: 'عبد الكريم بن عيسى (رئيس مصلحة الإدارة)', role: 2 },
-      { username: 'chef_consommation', hash: chefHash, name: 'رابح بوعكاز (رئيس مصلحة قمع الغش)', role: 2 },
-      { username: 'chef_concurrence', hash: chefHash, name: 'جمال لونيس (رئيس مصلحة المنافسة)', role: 2 },
-      { username: 'djamel_lounis', hash: chefHash, name: 'جمال لونيس (رئيس مصلحة المنافسة)', role: 2 },
-      { username: 'bureau_user', hash: bureauHash, name: 'سليم منصوري (رئيس مكتب المستخدمين)', role: 3 },
-      { username: 'chef_bureau', hash: bureauHash, name: 'سليم منصوري (رئيس مكتب المستخدمين)', role: 3 },
-      { username: 'inspecteur', hash: chefHash, name: 'كمال كريبع (مفتش رئيسي لقمع الغش)', role: 4 },
-      { username: 'kamel_kribaa', hash: chefHash, name: 'كمال كريبع (مفتش رئيسي لقمع الغش)', role: 4 },
-      { username: 'yacine_zerrouki', hash: chefHash, name: 'ياسين زروقي (محقق رئيسي للمنافسة)', role: 4 },
-    ];
+    // 🛡️ Ensure ONLY the master technical admin (tracker_admin) is guaranteed to exist.
+    // All other user accounts are managed exclusively by the Admin and will not be auto-resurrected upon reboot.
+    const existingAdmin = await db.query(
+      pg
+        ? 'SELECT "Id" FROM "UtilisateursSysteme" WHERE LOWER("NomUtilisateur") = \'tracker_admin\''
+        : 'SELECT Id FROM UtilisateursSysteme WHERE LOWER(NomUtilisateur) = \'tracker_admin\''
+    );
 
-    for (const acc of defaultAccounts) {
-      const existing = await db.query(
+    if (!existingAdmin || existingAdmin.length === 0) {
+      await db.query(
         pg
-          ? 'SELECT "Id" FROM "UtilisateursSysteme" WHERE LOWER("NomUtilisateur") = LOWER($1)'
-          : 'SELECT Id FROM UtilisateursSysteme WHERE LOWER(NomUtilisateur) = LOWER(?)',
-        [acc.username]
+          ? 'INSERT INTO "UtilisateursSysteme" ("NomUtilisateur","MotDePasseHash","NomComplet","Role","EstActif","DateCreation","MasterPin") VALUES (\'tracker_admin\',$1,\'مدير النظام التقني\',5,true,NOW(),\'202600\')'
+          : 'INSERT INTO UtilisateursSysteme (NomUtilisateur,MotDePasseHash,NomComplet,Role,EstActif,DateCreation,MasterPin) VALUES (\'tracker_admin\',?,\'مدير النظام التقني\',5,1,GETDATE(),\'202600\')',
+        [adminHash]
       );
-
-      if (!existing || existing.length === 0) {
-        await db.query(
-          pg
-            ? 'INSERT INTO "UtilisateursSysteme" ("NomUtilisateur","MotDePasseHash","NomComplet","Role","EstActif","DateCreation") VALUES ($1,$2,$3,$4,true,NOW())'
-            : 'INSERT INTO UtilisateursSysteme (NomUtilisateur,MotDePasseHash,NomComplet,Role,EstActif,DateCreation) VALUES (?,?,?,?,1,GETDATE())',
-          [acc.username, acc.hash, acc.name, acc.role]
-        );
-        console.log(`✅ System account ensured: ${acc.username}`);
-      }
+      console.log('✅ Master Technical Admin account ensured: tracker_admin');
     }
   } catch (err) {
     console.log('seedUsers error:', err.message);
@@ -1589,9 +1554,9 @@ async function cleanupDuplicateEmployees() {
   const pg = isPostgres();
   try {
     if (pg) {
-      // 1. Delete Director from Employes if present (The Director is the Ordonnateur / Supreme supervisor, not an employee subject to check-ins)
+      // 1. Ensure Director is not in Employes (The Director is the Ordonnateur / Supreme supervisor)
       await db.query(`DELETE FROM "Employes" WHERE "NumeroMatricule" = 'MAT-DIR-001' OR "Service" = 'المديرية الولائية'`);
-      await db.query(`UPDATE "UtilisateursSysteme" SET "EmployeId" = NULL WHERE "NomUtilisateur" = 'directeur'`);
+      await db.query(`UPDATE "UtilisateursSysteme" SET "EmployeeId" = NULL WHERE "NomUtilisateur" = 'directeur'`);
 
       // 2. Delete duplicate rows from Employes keeping the minimum Id for each unique NumeroMatricule
       await db.query(`
@@ -1608,25 +1573,6 @@ async function cleanupDuplicateEmployees() {
         DELETE FROM "TrackerEmployeeAdmin"
         WHERE "EmployeeId" NOT IN (SELECT "Id" FROM "Employes")
       `);
-
-      // 4. Link subordinate user accounts to the correct distinct Employee IDs
-      const emps = await db.query('SELECT "Id", "NumeroMatricule" FROM "Employes"');
-      for (const e of emps) {
-        if (e.NumeroMatricule === 'MAT-BUR-002') {
-          await db.query('UPDATE "UtilisateursSysteme" SET "EmployeId" = $1 WHERE "NomUtilisateur" IN (\'bureau_user\', \'chef_bureau\')', [e.Id]);
-        } else if (e.NumeroMatricule === 'MAT-ADM-003') {
-          await db.query('UPDATE "UtilisateursSysteme" SET "EmployeId" = $1 WHERE "NomUtilisateur" = $2', [e.Id, 'chef_administration']);
-        } else if (e.NumeroMatricule === 'MAT-DQPC-004') {
-          await db.query('UPDATE "UtilisateursSysteme" SET "EmployeId" = $1 WHERE "NomUtilisateur" = $2', [e.Id, 'chef_consommation']);
-        } else if (e.NumeroMatricule === 'MAT-DCE-005') {
-          await db.query('UPDATE "UtilisateursSysteme" SET "EmployeId" = $1 WHERE "NomUtilisateur" IN (\'chef_concurrence\', \'djamel_lounis\')', [e.Id]);
-        } else if (e.NumeroMatricule === 'MAT-INSP-006') {
-          await db.query('UPDATE "UtilisateursSysteme" SET "EmployeId" = $1 WHERE "NomUtilisateur" IN (\'inspecteur\', \'kamel_kribaa\')', [e.Id]);
-        } else if (e.NumeroMatricule === 'MAT-INSP-007') {
-          await db.query('UPDATE "UtilisateursSysteme" SET "EmployeId" = $1 WHERE "NomUtilisateur" = $2', [e.Id, 'yacine_zerrouki']);
-        }
-      }
-      console.log('✅ Employee duplicates cleaned up and linked to users.');
     }
   } catch (err) {
     console.log('cleanupDuplicateEmployees notice:', err.message);
