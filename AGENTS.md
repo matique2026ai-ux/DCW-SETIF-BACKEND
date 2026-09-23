@@ -8,7 +8,7 @@
 > **رابط المنصة الحية (Render Web App)**: [dcw-setif-tracker.onrender.com](https://dcw-setif-tracker.onrender.com)
 > **السيرفر السحابي الحي (Render Backend API)**: `https://drh-setif-api.onrender.com/api`
 > **معرف النشر الأخير على Render**: `dep-dapq0rs9v7es739h8je0` (Web) | `dep-dapq3knlk1mc73ch9qq0` (API)
-> **عداد إصدارات APK للتطبيقات الميدانية**: الإصدار الحالي المبني والمُسلَّم: `v1.0.5+6` | الإصدار القادم: `v1.0.6+7`
+> **عداد إصدارات APK للتطبيقات الميدانية**: الإصدار الحالي المبني والمُسلَّم: `v1.0.6+7` | الإصدار القادم: `v1.0.7+8`
 
 ---
 
