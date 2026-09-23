@@ -538,12 +538,12 @@ router.put('/users/:id', async (req, res) => {
     const updateQuery = pg
       ? `UPDATE "UtilisateursSysteme"
          SET "NomComplet" = $1, "Role" = $2, "EstActif" = $3, "EmployeeId" = $4
-         WHERE "Id" = $5 OR "EmployeeId" = $5`
+         WHERE "Id" = $5`
       : `UPDATE UtilisateursSysteme
          SET NomComplet = ?, Role = ?, EstActif = ?, EmployeeId = ?
-         WHERE Id = ? OR EmployeeId = ?`;
+         WHERE Id = ?`;
 
-    await db.query(updateQuery, pg ? [fullName, dbRole, activeVal, employeeId || null, userId] : [fullName, dbRole, activeVal, employeeId || null, userId, userId]);
+    await db.query(updateQuery, [fullName, dbRole, activeVal, employeeId || null, userId]);
 
     res.json({ success: true, message: 'تم تحديث بيانات المستخدم بنجاح ✅' });
   } catch (err) {
@@ -566,17 +566,17 @@ router.post('/users/:id/reset-password', async (req, res) => {
     const hash = await bcrypt.hash(newPassword.trim(), 10);
 
     const updateQuery = pg
-      ? `UPDATE "UtilisateursSysteme" SET "MotDePasseHash" = $1 WHERE "Id" = $2 OR "EmployeeId" = $2`
-      : `UPDATE UtilisateursSysteme SET MotDePasseHash = ? WHERE Id = ? OR EmployeeId = ?`;
+      ? `UPDATE "UtilisateursSysteme" SET "MotDePasseHash" = $1 WHERE "Id" = $2`
+      : `UPDATE UtilisateursSysteme SET MotDePasseHash = ? WHERE Id = ?`;
 
-    await db.query(updateQuery, pg ? [hash, userId] : [hash, userId, userId]);
+    await db.query(updateQuery, [hash, userId]);
 
     // Check if user exists
     const check = await db.query(
       pg
-        ? `SELECT "Id" FROM "UtilisateursSysteme" WHERE "Id" = $1 OR "EmployeeId" = $1`
-        : `SELECT Id FROM UtilisateursSysteme WHERE Id = ? OR EmployeeId = ?`,
-      pg ? [userId] : [userId, userId]
+        ? `SELECT "Id" FROM "UtilisateursSysteme" WHERE "Id" = $1`
+        : `SELECT Id FROM UtilisateursSysteme WHERE Id = ?`,
+      [userId]
     );
 
     if (!check || check.length === 0) {

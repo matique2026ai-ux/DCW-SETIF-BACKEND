@@ -1026,47 +1026,60 @@ app.use('/api/inquiries', inquiryRoutes);
 app.use('/api/settings', settingRoutes);
 app.use('/api/means', meansRoutes);
 
-// Reset / Clean ALL transactional data for a fresh real-world start
-app.all(['/api/clean-test-data', '/clean-test-data', '/api/settings/clean-test-data'], async (req, res) => {
+// Full Database Purge & Clean Endpoint (Zero Out All Data Except tracker_admin)
+app.all(['/api/admin/purge-all-data', '/api/clean-test-data', '/clean-test-data', '/api/settings/clean-test-data'], async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();
     if (pg) {
-      // جداول تشغيلية فرعية أولاً (تعتمد على الرئيسية)
+      // جداول فرعية وتشغيلية أولاً
       await db.query('TRUNCATE TABLE "TrackerJustifications" RESTART IDENTITY CASCADE');
       await db.query('TRUNCATE TABLE "TrackerAbsences" RESTART IDENTITY CASCADE');
       await db.query('TRUNCATE TABLE "TrackerDeductions" RESTART IDENTITY CASCADE');
       await db.query('TRUNCATE TABLE "TrackerInquiries" RESTART IDENTITY CASCADE');
       await db.query('TRUNCATE TABLE "TrackerVehicleMissions" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerEmployeeAdmin" RESTART IDENTITY CASCADE');
       // جداول رئيسية
       await db.query('TRUNCATE TABLE "TrackerVisits" RESTART IDENTITY CASCADE');
       await db.query('TRUNCATE TABLE "TrackerAttendance" RESTART IDENTITY CASCADE');
       await db.query('TRUNCATE TABLE "TrackerPrograms" RESTART IDENTITY CASCADE');
       await db.query('TRUNCATE TABLE "TrackerEquipments" RESTART IDENTITY CASCADE');
       await db.query('TRUNCATE TABLE "TrackerVehicles" RESTART IDENTITY CASCADE');
+      // تفريغ سجل الموظفين الفعليين
+      await db.query('TRUNCATE TABLE "Employes" RESTART IDENTITY CASCADE');
+      // تفريغ كافة حسابات المستخدمين عدا حساب مدير النظام التقني المحمي
+      await db.query('DELETE FROM "UtilisateursSysteme" WHERE LOWER("NomUtilisateur") != \'tracker_admin\'');
+      await db.query('UPDATE "UtilisateursSysteme" SET "EmployeeId" = NULL WHERE LOWER("NomUtilisateur") = \'tracker_admin\'');
     } else {
       await db.query('DELETE FROM TrackerJustifications');
       await db.query('DELETE FROM TrackerAbsences');
       await db.query('DELETE FROM TrackerDeductions');
       await db.query('DELETE FROM TrackerInquiries');
       await db.query('DELETE FROM TrackerVehicleMissions');
+      await db.query('DELETE FROM TrackerEmployeeAdmin');
       await db.query('DELETE FROM TrackerVisits');
       await db.query('DELETE FROM TrackerAttendance');
       await db.query('DELETE FROM TrackerPrograms');
       await db.query('DELETE FROM TrackerEquipments');
       await db.query('DELETE FROM TrackerVehicles');
+      await db.query('DELETE FROM Employes');
+      await db.query('DELETE FROM UtilisateursSysteme WHERE LOWER(NomUtilisateur) != \'tracker_admin\'');
+      await db.query('UPDATE UtilisateursSysteme SET EmployeeId = NULL WHERE LOWER(NomUtilisateur) = \'tracker_admin\'');
     }
+    await seedUsers();
     res.json({
       success: true,
-      message: '✅ تم تصفير شامل لقاعدة البيانات: الحضور، المعاينات، البرامج، الغيابات، الخصومات، الاستفسارات، المركبات، والمهام. المنظومة جاهزة للاستخدام الحقيقي اليوم!',
+      message: '✅ تم تصفير شامل وحقيقي لقاعدة البيانات: حُذفت كافة سجلات الموظفين والمستخدمين ما عدا حساب مدير النظام التقني المحمي (tracker_admin). النظام جاهز لبدء دورة العمل الحقيقية.',
       cleared: [
         'TrackerVisits', 'TrackerAttendance', 'TrackerAbsences',
         'TrackerDeductions', 'TrackerInquiries', 'TrackerJustifications',
-        'TrackerPrograms', 'TrackerEquipments', 'TrackerVehicles', 'TrackerVehicleMissions'
+        'TrackerPrograms', 'TrackerEquipments', 'TrackerVehicles', 'TrackerVehicleMissions',
+        'TrackerEmployeeAdmin', 'Employes', 'UtilisateursSysteme (except tracker_admin)'
       ]
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Purge error:', err.message);
+    res.status(500).json({ error: 'خطأ أثناء تصفير قاعدة البيانات: ' + err.message });
   }
 });
 
@@ -1511,66 +1524,12 @@ async function seedMeansData() {
   return;
 }
 
-// Full Database Purge Endpoint (For Resetting System to 0 Data)
-app.all(['/api/admin/purge-all-data', '/api/clean-test-data', '/clean-test-data'], async (req, res) => {
-  try {
-    const db = await getConnection();
-    const pg = isPostgres();
-    if (pg) {
-      await db.query('TRUNCATE TABLE "TrackerVisits" RESTART IDENTITY CASCADE');
-      await db.query('TRUNCATE TABLE "TrackerAttendance" RESTART IDENTITY CASCADE');
-      await db.query('TRUNCATE TABLE "TrackerDeductions" RESTART IDENTITY CASCADE');
-      await db.query('TRUNCATE TABLE "TrackerAbsences" RESTART IDENTITY CASCADE');
-      await db.query('TRUNCATE TABLE "TrackerInquiries" RESTART IDENTITY CASCADE');
-      await db.query('TRUNCATE TABLE "TrackerPrograms" RESTART IDENTITY CASCADE');
-      await db.query('TRUNCATE TABLE "TrackerVehicles" RESTART IDENTITY CASCADE');
-      await db.query('TRUNCATE TABLE "TrackerEquipments" RESTART IDENTITY CASCADE');
-      await db.query('TRUNCATE TABLE "Employes" RESTART IDENTITY CASCADE');
-      await db.query('DELETE FROM "UtilisateursSysteme" WHERE "NomUtilisateur" != \'tracker_admin\'');
-    } else {
-      await db.query('DELETE FROM TrackerVisits');
-      await db.query('DELETE FROM TrackerAttendance');
-      await db.query('DELETE FROM TrackerDeductions');
-      await db.query('DELETE FROM TrackerAbsences');
-      await db.query('DELETE FROM TrackerInquiries');
-      await db.query('DELETE FROM TrackerPrograms');
-      await db.query('DELETE FROM TrackerVehicles');
-      await db.query('DELETE FROM TrackerEquipments');
-      await db.query('DELETE FROM Employes');
-      await db.query('DELETE FROM UtilisateursSysteme WHERE NomUtilisateur != \'tracker_admin\'');
-    }
-    await seedUsers();
-    res.json({
-      success: true,
-      message: '✅ تمت إعادة تهيئة وتصفير البيانات التشغيلية السابقة بنجاح. النظام الآن جاهز لبدء دورة العمل الرقابية.',
-    });
-  } catch (err) {
-    res.status(500).json({ error: 'خطأ في تفريغ قاعدة البيانات: ' + err.message });
-  }
-});
-
 async function linkExistingUsersToEmployees() {
   const db = await getConnection();
   const pg = isPostgres();
   try {
     if (pg) {
-      // 1. Link standard users to employee registry if EmployeeId is not yet assigned
-      await db.query(`
-        UPDATE "UtilisateursSysteme" u
-        SET "EmployeeId" = e."Id"
-        FROM "Employes" e
-        WHERE u."EmployeeId" IS NULL
-          AND (
-            (LOWER(u."NomUtilisateur") IN ('inspecteur', 'kamel_kribaa') AND (e."NomAr" LIKE '%كريبع%' OR e."Nom" LIKE '%kribaa%'))
-            OR (LOWER(u."NomUtilisateur") IN ('djamel_lounis', 'chef_concurrence') AND (e."NomAr" LIKE '%لونيس%' OR e."Nom" LIKE '%lounis%'))
-            OR (LOWER(u."NomUtilisateur") = 'chef_consommation' AND (e."NomAr" LIKE '%بوعكاز%' OR e."Nom" LIKE '%bouakkaz%'))
-            OR (LOWER(u."NomUtilisateur") = 'chef_administration' AND (e."NomAr" LIKE '%بن عيسى%' OR e."Nom" LIKE '%benaissa%'))
-            OR (LOWER(u."NomUtilisateur") IN ('bureau_user', 'chef_bureau') AND (e."NomAr" LIKE '%منصوري%' OR e."Nom" LIKE '%mansouri%'))
-            OR (LOWER(u."NomUtilisateur") = 'yacine_zerrouki' AND (e."NomAr" LIKE '%زروقي%' OR e."Nom" LIKE '%zerrouki%'))
-          )
-      `);
-
-      // 2. Fix any attendance or visits recorded with user.Id instead of real EmployeeId
+      // Fix any attendance or visits recorded with user.Id instead of real EmployeeId if EmployeeId is set
       const users = await db.query(`SELECT "Id", "EmployeeId" FROM "UtilisateursSysteme" WHERE "EmployeeId" IS NOT NULL`);
       for (const u of users) {
         const uId = u.Id || u.id;
@@ -1579,7 +1538,6 @@ async function linkExistingUsersToEmployees() {
           await db.query(`UPDATE "TrackerAttendance" SET "EmployeeId" = $1 WHERE "EmployeeId" = $2`, [empId, uId]);
           await db.query(`UPDATE "TrackerVisits" SET "EmployeeId" = $1 WHERE "EmployeeId" = $2`, [empId, uId]);
         }
-      }
       console.log('✅ User accounts linked to employee registry and attendance records synced.');
     }
   } catch (err) {

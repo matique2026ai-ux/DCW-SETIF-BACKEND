@@ -359,6 +359,36 @@ router.get('/map-data', async (req, res) => {
       }
     }
 
+    // Also include any user who recorded attendance or visits today even if not in targetEmployees
+    const existingEmpIds = new Set(targetEmployees.map(e => Number(e.Id || e.id)));
+    const extraIds = new Set([...Object.keys(attendanceMap), ...Object.keys(visitsMap)].map(Number));
+    for (const extraId of extraIds) {
+      if (extraId && !existingEmpIds.has(extraId)) {
+        const uRows = await db.query(
+          pg
+            ? `SELECT "Id", "NomComplet", "NomUtilisateur" FROM "UtilisateursSysteme" WHERE "Id" = $1`
+            : `SELECT Id, NomComplet, NomUtilisateur FROM UtilisateursSysteme WHERE Id = ?`,
+          [extraId]
+        );
+        if (uRows && uRows.length > 0) {
+          const u = uRows[0];
+          targetEmployees.push({
+            Id: extraId,
+            NumeroMatricule: `USR-${extraId}`,
+            NomAr: u.NomComplet || u.nomcomplet || u.NomUtilisateur || u.nomutilisateur,
+            PrenomAr: '',
+            Nom: u.NomUtilisateur || u.nomutilisateur,
+            Prenom: '',
+            Service: 'مصلحة حماية المستهلك وقمع الغش',
+            Grade: 'مفتش رقابة ميداني',
+            AdministrativeStatus: 'active',
+            IsBrigadeLeader: false,
+            BrigadeName: 'فرقة تفتيش ميدانية',
+          });
+        }
+      }
+    }
+
     const result = targetEmployees.map(emp => {
       const empId = emp.Id || emp.id;
       const att = attendanceMap[empId];
