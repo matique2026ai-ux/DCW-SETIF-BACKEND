@@ -25,6 +25,7 @@ function normalizeUser(u) {
     deviceId: u.DeviceId || u.deviceid || null,
     deviceName: u.DeviceName || u.devicename || null,
     masterPin: u.MasterPin || u.masterpin || '202600',
+    mustChangeCredentials: u.MustChangeCredentials !== undefined ? (u.MustChangeCredentials === true || u.MustChangeCredentials === 1) : null,
     createdAt: u.DateCreation || u.datecreation,
     lastLogin: u.DerniereConnexion || u.derniereconnexion,
   };
@@ -200,6 +201,13 @@ router.post('/login', async (req, res) => {
       { expiresIn: '24h' }
     );
 
+    const isExecutiveOfficial = (u.roleId === 1 || u.roleId === 2 || u.roleId === 3);
+    const mustChange = isExecutiveOfficial && (
+      u.mustChangeCredentials === true ||
+      u.masterPin === '202600' ||
+      u.lastLogin == null
+    );
+
     res.json({
       token,
       user: {
@@ -207,8 +215,10 @@ router.post('/login', async (req, res) => {
         username: u.username,
         fullName: u.fullName,
         role,
+        roleId: u.roleId,
         employeeId: u.employeeId,
         deviceId: u.deviceId,
+        mustChangeCredentials: mustChange,
       },
     });
   } catch (err) {
@@ -365,63 +375,154 @@ router.post(['/change-master-pin', '/update-master-pin'], async (req, res) => {
       } catch (_) {}
     }
 
-    const { currentPassword, currentPin, newMasterPin } = req.body;
-    const newPin = (newMasterPin || req.body.newPin || '').toString().trim();
+    const { currentPassword, currentPin, newMasterPin, newPin: rawNewPin } = req.body;
+    const newPin = (newMasterPin || rawNewPin || '').toString().trim();
 
     if (!newPin || newPin.length < 4) {
-      return res.status(400).json({ error: 'يجب ألا يقل رمز الأمان (Master PIN) عن 4 أرقام أو أحرف' });
+      return res.status(400).json({ error: 'يجب ألا يقل رمز الأمان (PIN) عن 4 أرقام أو أحرف' });
     }
 
     const db = await getConnection();
     const pg = isPostgres();
 
-    // Verify requesting user is admin
-    const users = await db.query(
-      pg
+    // Determine target user: if decoded token exists, target is the authenticated user; fallback to tracker_admin
+    const targetUserId = decoded.id;
+    let queryUser;
+    if (targetUserId) {
+      queryUser = pg
+        ? 'SELECT * FROM "UtilisateursSysteme" WHERE "Id" = $1'
+        : 'SELECT * FROM UtilisateursSysteme WHERE Id = ?';
+    } else {
+      queryUser = pg
         ? 'SELECT * FROM "UtilisateursSysteme" WHERE LOWER("NomUtilisateur") = \'tracker_admin\''
-        : 'SELECT * FROM UtilisateursSysteme WHERE LOWER(NomUtilisateur) = \'tracker_admin\''
-    );
-
-    if (!users || users.length === 0) {
-      return res.status(404).json({ error: 'حساب مدير النظام غير موجود' });
+        : 'SELECT * FROM UtilisateursSysteme WHERE LOWER(NomUtilisateur) = \'tracker_admin\'';
     }
 
-    const adminUser = normalizeUser(users[0]);
+    const users = await db.query(queryUser, targetUserId ? [targetUserId] : []);
+    if (!users || users.length === 0) {
+      return res.status(404).json({ error: 'حساب المستخدم غير موجود' });
+    }
 
-    // Validate permission: token is admin, OR currentPassword matches, OR currentPin matches
-    let authorized = decoded.role === 'admin' || decoded.username === 'tracker_admin';
+    const targetUser = normalizeUser(users[0]);
+
+    // Validate permission: caller password matches, OR currentPin matches, OR caller is admin
+    let authorized = (decoded.role === 'admin' && targetUserId === targetUser.id);
     if (!authorized && currentPassword) {
       try {
-        authorized = await bcrypt.compare(currentPassword, adminUser.passwordHash);
+        authorized = await bcrypt.compare(currentPassword, targetUser.passwordHash);
       } catch (_) {}
-      if (!authorized && (adminUser.passwordHash === currentPassword || currentPassword === 'admin123')) {
+      if (!authorized && (targetUser.passwordHash === currentPassword || currentPassword === 'admin123')) {
         authorized = true;
       }
     }
-    if (!authorized && currentPin && currentPin === (adminUser.masterPin || '202600')) {
+    if (!authorized && currentPin && currentPin === (targetUser.masterPin || '202600')) {
       authorized = true;
     }
 
     if (!authorized) {
-      return res.status(403).json({ error: 'غير مصرح: يرجى تأكيد كلمة المرور أو رمز الأمان الحالي أولاً' });
+      return res.status(403).json({ error: 'غير مصرح: يرجى كتابة كلمة المرور الحالية أو رمز الأمان الحالي لتأكيد هويتك' });
     }
 
-    // Update MasterPin
+    // Update MasterPin for this specific user
     await db.query(
       pg
-        ? 'UPDATE "UtilisateursSysteme" SET "MasterPin" = $1 WHERE LOWER("NomUtilisateur") = \'tracker_admin\''
-        : 'UPDATE UtilisateursSysteme SET MasterPin = ? WHERE LOWER(NomUtilisateur) = \'tracker_admin\'',
-      [newPin]
+        ? 'UPDATE "UtilisateursSysteme" SET "MasterPin" = $1 WHERE "Id" = $2'
+        : 'UPDATE UtilisateursSysteme SET MasterPin = ? WHERE Id = ?',
+      [newPin, targetUser.id]
     );
 
     res.json({
       success: true,
-      message: 'تم تحديث وحفظ رمز الأمان السري (Master PIN) الجديد بنجاح ✅',
+      message: 'تم تحديث وحفظ رمز الأمان السري (PIN Code) الجديد بنجاح ✅',
       masterPin: newPin,
     });
   } catch (err) {
-    console.error('Change master pin error:', err.message);
+    console.error('Change PIN error:', err.message);
     res.status(500).json({ error: 'خطأ في الخادم أثناء تحديث رمز الأمان' });
+  }
+});
+
+// Admin: Reset a specific user's PIN code
+router.post('/users/:id/reset-pin', async (req, res) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    if (userId === 1) {
+      return res.status(403).json({ error: 'حساب مدير النظام التقني (tracker_admin) محمي سيادياً وممنوع إعادة ضبط رمزه من هنا' });
+    }
+    const { newPin } = req.body;
+    const pinToSet = (newPin && newPin.toString().trim().length >= 4) ? newPin.toString().trim() : '202600';
+
+    const db = await getConnection();
+    const pg = isPostgres();
+
+    await db.query(
+      pg
+        ? 'UPDATE "UtilisateursSysteme" SET "MasterPin" = $1, "MustChangeCredentials" = true WHERE ("Id" = $2 OR "EmployeeId" = $2) AND LOWER("NomUtilisateur") != \'tracker_admin\''
+        : 'UPDATE UtilisateursSysteme SET MasterPin = ?, MustChangeCredentials = 1 WHERE (Id = ? OR EmployeeId = ?) AND LOWER(NomUtilisateur) != \'tracker_admin\'',
+      pg ? [pinToSet, userId] : [pinToSet, userId, userId]
+    );
+
+    res.json({
+      success: true,
+      message: `تم إعادة ضبط رمز الأمان (PIN) للمستخدم بنجاح إلى: ${pinToSet} ✅`,
+      masterPin: pinToSet,
+    });
+  } catch (err) {
+    console.error('Reset PIN error:', err.message);
+    res.status(500).json({ error: 'خطأ أثناء إعادة تعيين رمز الأمان' });
+  }
+});
+
+// Mandatory First-Time or Forced Security Setup (Change both initial Password and initial PIN)
+router.post('/setup-credentials', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    let decoded = {};
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'drh-setif-secret-2024');
+      } catch (_) {}
+    }
+
+    const { newPassword, newPin } = req.body;
+    const userId = decoded.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'جلسة الدخول غير صالحة أو منتهية، يرجى تسجيل الدخول مجدداً' });
+    }
+
+    if (!newPassword || newPassword.trim().length < 6) {
+      return res.status(400).json({ error: 'يجب ألا تقل كلمة المرور الشخصية الجديدة عن 6 أحرف' });
+    }
+
+    if (!newPin || newPin.toString().trim().length < 4) {
+      return res.status(400).json({ error: 'يجب ألا يقل رمز الأمان (PIN) الجديد عن 4 أرقام' });
+    }
+
+    const db = await getConnection();
+    const pg = isPostgres();
+
+    const passHash = await bcrypt.hash(newPassword.trim(), 10);
+    const cleanPin = newPin.toString().trim();
+
+    const updateQuery = pg
+      ? `UPDATE "UtilisateursSysteme"
+         SET "MotDePasseHash" = $1, "MasterPin" = $2, "MustChangeCredentials" = false
+         WHERE "Id" = $3`
+      : `UPDATE UtilisateursSysteme
+         SET MotDePasseHash = ?, MasterPin = ?, MustChangeCredentials = 0
+         WHERE Id = ?`;
+
+    await db.query(updateQuery, [passHash, cleanPin, userId]);
+
+    res.json({
+      success: true,
+      message: 'تم تأمين وتحديث حسابك بنجاح! تم اعتماد كلمة المرور ورمز الأمان الجديدين بنجاح ✅',
+      masterPin: cleanPin,
+    });
+  } catch (err) {
+    console.error('Setup credentials error:', err.message);
+    res.status(500).json({ error: 'خطأ أثناء تأمين الحساب: ' + err.message });
   }
 });
 
@@ -561,6 +662,9 @@ router.put('/users/:id', async (req, res) => {
 router.post('/users/:id/reset-password', async (req, res) => {
   try {
     const userId = parseInt(req.params.id, 10);
+    if (userId === 1) {
+      return res.status(403).json({ error: 'حساب مدير النظام التقني (tracker_admin) محمي سيادياً وممنوع إعادة تعيين كلمة مروره من هنا' });
+    }
     const { newPassword } = req.body;
     if (!newPassword || newPassword.trim().length < 4) {
       return res.status(400).json({ error: 'يجب ألا تقل كلمة المرور الجديدة عن 4 أحرف' });
@@ -571,8 +675,8 @@ router.post('/users/:id/reset-password', async (req, res) => {
     const hash = await bcrypt.hash(newPassword.trim(), 10);
 
     const updateQuery = pg
-      ? `UPDATE "UtilisateursSysteme" SET "MotDePasseHash" = $1 WHERE "Id" = $2`
-      : `UPDATE UtilisateursSysteme SET MotDePasseHash = ? WHERE Id = ?`;
+      ? `UPDATE "UtilisateursSysteme" SET "MotDePasseHash" = $1, "MustChangeCredentials" = true WHERE "Id" = $2 AND LOWER("NomUtilisateur") != 'tracker_admin'`
+      : `UPDATE UtilisateursSysteme SET MotDePasseHash = ?, MustChangeCredentials = 1 WHERE Id = ? AND LOWER(NomUtilisateur) != 'tracker_admin'`;
 
     await db.query(updateQuery, [hash, userId]);
 

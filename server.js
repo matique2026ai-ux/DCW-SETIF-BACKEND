@@ -140,36 +140,43 @@ const handleMasterPinChange = async (req, res) => {
       } catch (_) {}
     }
 
-    const { currentPassword, currentPin, newMasterPin } = req.body;
-    const newPin = (newMasterPin || req.body.newPin || '').toString().trim();
+    const { currentPassword, currentPin, newMasterPin, newPin: rawNewPin } = req.body;
+    const newPin = (newMasterPin || rawNewPin || '').toString().trim();
 
     if (!newPin || newPin.length < 4) {
-      return res.status(400).json({ error: 'يجب ألا يقل رمز الأمان (Master PIN) عن 4 أرقام أو أحرف' });
+      return res.status(400).json({ error: 'يجب ألا يقل رمز الأمان (PIN) عن 4 أرقام أو أحرف' });
     }
 
     const db = await getConnection();
     const pg = isPostgres();
 
-    const users = await db.query(
-      pg
+    const targetUserId = decoded.id;
+    let queryUser;
+    if (targetUserId) {
+      queryUser = pg
+        ? 'SELECT * FROM "UtilisateursSysteme" WHERE "Id" = $1'
+        : 'SELECT * FROM UtilisateursSysteme WHERE Id = ?';
+    } else {
+      queryUser = pg
         ? 'SELECT * FROM "UtilisateursSysteme" WHERE LOWER("NomUtilisateur") = \'tracker_admin\''
-        : 'SELECT * FROM UtilisateursSysteme WHERE LOWER(NomUtilisateur) = \'tracker_admin\''
-    );
-
-    if (!users || users.length === 0) {
-      return res.status(404).json({ error: 'حساب مدير النظام غير موجود' });
+        : 'SELECT * FROM UtilisateursSysteme WHERE LOWER(NomUtilisateur) = \'tracker_admin\'';
     }
 
-    const adminUser = users[0];
-    const adminHash = adminUser.MotDePasseHash || adminUser.motdepassehash || adminUser.MotDePasse || '';
-    const existingPin = adminUser.MasterPin || adminUser.masterpin || '202600';
+    const users = await db.query(queryUser, targetUserId ? [targetUserId] : []);
+    if (!users || users.length === 0) {
+      return res.status(404).json({ error: 'حساب المستخدم غير موجود' });
+    }
 
-    let authorized = decoded.role === 'admin' || decoded.username === 'tracker_admin';
+    const targetUser = users[0];
+    const userHash = targetUser.MotDePasseHash || targetUser.motdepassehash || targetUser.MotDePasse || '';
+    const existingPin = targetUser.MasterPin || targetUser.masterpin || '202600';
+
+    let authorized = decoded.role === 'admin' && (!targetUserId || targetUserId === (targetUser.Id || targetUser.id));
     if (!authorized && currentPassword) {
       try {
-        authorized = await bcrypt.compare(currentPassword, adminHash);
+        authorized = await bcrypt.compare(currentPassword, userHash);
       } catch (_) {}
-      if (!authorized && (adminHash === currentPassword || currentPassword === 'admin123')) {
+      if (!authorized && (userHash === currentPassword || currentPassword === 'admin123')) {
         authorized = true;
       }
     }
@@ -178,19 +185,19 @@ const handleMasterPinChange = async (req, res) => {
     }
 
     if (!authorized) {
-      return res.status(403).json({ error: 'غير مصرح: يرجى إدخال كلمة المرور أو رمز الأمان الحالي أولاً' });
+      return res.status(403).json({ error: 'غير مصرح: يرجى إدخال كلمة المرور الحالية أو رمز الأمان الحالي بشكل صحيح لتأكيد هويتك' });
     }
 
     await db.query(
       pg
-        ? 'UPDATE "UtilisateursSysteme" SET "MasterPin" = $1 WHERE LOWER("NomUtilisateur") = \'tracker_admin\''
-        : 'UPDATE UtilisateursSysteme SET MasterPin = ? WHERE LOWER(NomUtilisateur) = \'tracker_admin\'',
-      [newPin]
+        ? 'UPDATE "UtilisateursSysteme" SET "MasterPin" = $1 WHERE "Id" = $2'
+        : 'UPDATE UtilisateursSysteme SET MasterPin = ? WHERE Id = ?',
+      [newPin, targetUser.Id || targetUser.id]
     );
 
     res.json({
       success: true,
-      message: 'تم تحديث وحفظ رمز الأمان السري (Master PIN) الجديد بنجاح ✅',
+      message: 'تم تحديث وحفظ رمز الأمان السري (PIN Code) الجديد بنجاح ✅',
       masterPin: newPin,
     });
   } catch (err) {
@@ -198,8 +205,7 @@ const handleMasterPinChange = async (req, res) => {
     res.status(500).json({ error: 'خطأ أثناء تحديث رمز الأمان' });
   }
 };
-app.post('/api/auth/change-master-pin', handleMasterPinChange);
-app.post('/api/change-master-pin', handleMasterPinChange);
+app.post(['/api/auth/change-master-pin', '/api/change-master-pin', '/api/auth/change-pin', '/api/change-pin'], handleMasterPinChange);
 
 // ROLE_MAP constant for user queries
 const ROLE_MAP = {
@@ -216,12 +222,12 @@ app.get(['/api/auth/users', '/api/users'], async (req, res) => {
     const db = await getConnection();
     const pg = isPostgres();
     const query = pg
-      ? `SELECT u."Id", u."NomUtilisateur", u."NomComplet", u."Role", u."EstActif", u."DateCreation", u."DerniereConnexion", u."EmployeeId", u."DeviceId", u."DeviceName",
+      ? `SELECT u."Id", u."NomUtilisateur", u."NomComplet", u."Role", u."EstActif", u."DateCreation", u."DerniereConnexion", u."EmployeeId", u."DeviceId", u."DeviceName", u."MasterPin", u."MustChangeCredentials",
                 e."Nom" as "EmpNom", e."Prenom" as "EmpPrenom", e."Service" as "EmpService", e."Grade" as "EmpGrade"
          FROM "UtilisateursSysteme" u
          LEFT JOIN "Employes" e ON u."EmployeeId" = e."Id"
          ORDER BY u."Id" ASC`
-      : `SELECT u.Id, u.NomUtilisateur, u.NomComplet, u.Role, u.EstActif, u.DateCreation, u.DerniereConnexion, u.EmployeeId, u.DeviceId, u.DeviceName,
+      : `SELECT u.Id, u.NomUtilisateur, u.NomComplet, u.Role, u.EstActif, u.DateCreation, u.DerniereConnexion, u.EmployeeId, u.DeviceId, u.DeviceName, u.MasterPin, u.MustChangeCredentials,
                 e.Nom as EmpNom, e.Prenom as EmpPrenom, e.Service as EmpService, e.Grade as EmpGrade
          FROM UtilisateursSysteme u
          LEFT JOIN Employes e ON u.EmployeeId = e.Id
@@ -239,6 +245,8 @@ app.get(['/api/auth/users', '/api/users'], async (req, res) => {
       lastLogin: u.DerniereConnexion || u.derniereconnexion,
       deviceId: u.DeviceId || u.deviceid || null,
       deviceName: u.DeviceName || u.devicename || null,
+      masterPin: u.MasterPin || u.masterpin || '202600',
+      mustChangeCredentials: (u.MustChangeCredentials !== undefined ? u.MustChangeCredentials : u.mustchangecredentials) === true || (u.MustChangeCredentials || u.mustchangecredentials) === 1,
       employeeId: u.EmployeeId || u.employeeid,
       empNom: u.EmpNom || u.empnom,
       empPrenom: u.EmpPrenom || u.empprenom,
@@ -344,6 +352,9 @@ app.put(['/api/auth/users/:id', '/api/users/:id', '/api/auth/users/:id/update', 
 app.all(['/api/auth/users/:id/reset-password', '/api/users/:id/reset-password'], async (req, res) => {
   try {
     const userId = parseInt(req.params.id, 10);
+    if (userId === 1) {
+      return res.status(403).json({ error: 'حساب مدير النظام التقني (tracker_admin) محمي سيادياً وممنوع إعادة تعيين كلمة مروره من هنا' });
+    }
     const { newPassword } = req.body;
     if (!newPassword || newPassword.trim().length < 4) {
       return res.status(400).json({ error: 'يجب ألا تقل كلمة المرور الجديدة عن 4 أحرف' });
@@ -354,8 +365,8 @@ app.all(['/api/auth/users/:id/reset-password', '/api/users/:id/reset-password'],
     const hash = await bcrypt.hash(newPassword.trim(), 10);
 
     const updateQuery = pg
-      ? `UPDATE "UtilisateursSysteme" SET "MotDePasseHash" = $1 WHERE "Id" = $2 OR "EmployeeId" = $2`
-      : `UPDATE UtilisateursSysteme SET MotDePasseHash = ? WHERE Id = ? OR EmployeeId = ?`;
+      ? `UPDATE "UtilisateursSysteme" SET "MotDePasseHash" = $1, "MustChangeCredentials" = true WHERE ("Id" = $2 OR "EmployeeId" = $2) AND LOWER("NomUtilisateur") != 'tracker_admin'`
+      : `UPDATE UtilisateursSysteme SET MotDePasseHash = ?, MustChangeCredentials = 1 WHERE (Id = ? OR EmployeeId = ?) AND LOWER(NomUtilisateur) != 'tracker_admin'`;
 
     await db.query(updateQuery, pg ? [hash, userId] : [hash, userId, userId]);
 
@@ -383,6 +394,88 @@ app.all(['/api/auth/users/:id/reset-device', '/api/users/:id/reset-device'], asy
   } catch (err) {
     console.error('Reset device direct error:', err.message);
     res.status(500).json({ error: 'خطأ أثناء إعادة تعيين جهاز المستخدم: ' + err.message });
+  }
+});
+
+// Direct PIN Reset Endpoint Handler (Reset PIN to default 202600 or custom)
+app.all(['/api/auth/users/:id/reset-pin', '/api/users/:id/reset-pin'], async (req, res) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    if (userId === 1) {
+      return res.status(403).json({ error: 'حساب مدير النظام التقني (tracker_admin) محمي سيادياً وممنوع إعادة ضبط رمزه من هنا' });
+    }
+    const { newPin } = req.body;
+    const pinToSet = (newPin && newPin.toString().trim().length >= 4) ? newPin.toString().trim() : '202600';
+    const db = await getConnection();
+    const pg = isPostgres();
+
+    const updateQuery = pg
+      ? `UPDATE "UtilisateursSysteme" SET "MasterPin" = $1, "MustChangeCredentials" = true WHERE ("Id" = $2 OR "EmployeeId" = $2) AND LOWER("NomUtilisateur") != 'tracker_admin'`
+      : `UPDATE UtilisateursSysteme SET MasterPin = ?, MustChangeCredentials = 1 WHERE (Id = ? OR EmployeeId = ?) AND LOWER(NomUtilisateur) != 'tracker_admin'`;
+
+    await db.query(updateQuery, pg ? [pinToSet, userId] : [pinToSet, userId, userId]);
+
+    res.json({
+      success: true,
+      message: `تم إعادة ضبط رمز الأمان (PIN) للمستخدم بنجاح إلى: ${pinToSet} ✅`,
+      masterPin: pinToSet,
+    });
+  } catch (err) {
+    console.error('Reset PIN direct error:', err.message);
+    res.status(500).json({ error: 'خطأ أثناء إعادة ضبط رمز الأمان: ' + err.message });
+  }
+});
+
+// Direct Setup Credentials Endpoint (First-time password and PIN change)
+app.post(['/api/auth/setup-credentials', '/api/setup-credentials'], async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    let decoded = {};
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'drh-setif-secret-2024');
+      } catch (_) {}
+    }
+
+    const { newPassword, newPin } = req.body;
+    const userId = decoded.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'جلسة الدخول غير صالحة، يرجى تسجيل الدخول مجدداً' });
+    }
+
+    if (!newPassword || newPassword.trim().length < 6) {
+      return res.status(400).json({ error: 'يجب ألا تقل كلمة المرور الشخصية الجديدة عن 6 أحرف' });
+    }
+
+    if (!newPin || newPin.toString().trim().length < 4) {
+      return res.status(400).json({ error: 'يجب ألا يقل رمز الأمان (PIN) الجديد عن 4 أرقام' });
+    }
+
+    const db = await getConnection();
+    const pg = isPostgres();
+
+    const passHash = await bcrypt.hash(newPassword.trim(), 10);
+    const cleanPin = newPin.toString().trim();
+
+    const updateQuery = pg
+      ? `UPDATE "UtilisateursSysteme"
+         SET "MotDePasseHash" = $1, "MasterPin" = $2, "MustChangeCredentials" = false
+         WHERE "Id" = $3`
+      : `UPDATE UtilisateursSysteme
+         SET MotDePasseHash = ?, MasterPin = ?, MustChangeCredentials = 0
+         WHERE Id = ?`;
+
+    await db.query(updateQuery, [passHash, cleanPin, userId]);
+
+    res.json({
+      success: true,
+      message: 'تم تأمين وتحديث حسابك بنجاح! تم اعتماد كلمة المرور ورمز الأمان الجديدين بنجاح ✅',
+      masterPin: cleanPin,
+    });
+  } catch (err) {
+    console.error('Setup credentials direct error:', err.message);
+    res.status(500).json({ error: 'خطأ أثناء تأمين الحساب: ' + err.message });
   }
 });
 
@@ -1366,6 +1459,7 @@ async function ensureTables() {
       await db.query(`ALTER TABLE "UtilisateursSysteme" ADD COLUMN IF NOT EXISTS "DeviceId" VARCHAR(150)`);
       await db.query(`ALTER TABLE "UtilisateursSysteme" ADD COLUMN IF NOT EXISTS "DeviceName" VARCHAR(100)`);
       await db.query(`ALTER TABLE "UtilisateursSysteme" ADD COLUMN IF NOT EXISTS "MasterPin" VARCHAR(50) DEFAULT '202600'`);
+      await db.query(`ALTER TABLE "UtilisateursSysteme" ADD COLUMN IF NOT EXISTS "MustChangeCredentials" BOOLEAN DEFAULT true`);
 
       await db.query(`ALTER TABLE "TrackerAttendance" ADD COLUMN IF NOT EXISTS "DeviceId" VARCHAR(150)`);
       await db.query(`ALTER TABLE "TrackerAttendance" ADD COLUMN IF NOT EXISTS "EarlyReason" TEXT`);
@@ -1384,6 +1478,7 @@ async function ensureTables() {
       await db.query(`IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UtilisateursSysteme') AND name = 'DeviceId') ALTER TABLE UtilisateursSysteme ADD DeviceId NVARCHAR(150) NULL`);
       await db.query(`IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UtilisateursSysteme') AND name = 'DeviceName') ALTER TABLE UtilisateursSysteme ADD DeviceName NVARCHAR(100) NULL`);
       await db.query(`IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UtilisateursSysteme') AND name = 'MasterPin') ALTER TABLE UtilisateursSysteme ADD MasterPin NVARCHAR(50) DEFAULT '202600' NULL`);
+      await db.query(`IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('UtilisateursSysteme') AND name = 'MustChangeCredentials') ALTER TABLE UtilisateursSysteme ADD MustChangeCredentials BIT DEFAULT 1`);
 
       await db.query(`IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('TrackerAttendance') AND name = 'DeviceId') ALTER TABLE TrackerAttendance ADD DeviceId NVARCHAR(150) NULL`);
       await db.query(`IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('TrackerAttendance') AND name = 'EarlyReason') ALTER TABLE TrackerAttendance ADD EarlyReason NVARCHAR(MAX) NULL`);
