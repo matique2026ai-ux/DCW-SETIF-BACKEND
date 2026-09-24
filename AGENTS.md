@@ -65,9 +65,7 @@
 | **`chef_consommation`** | `chef123` | `head_of_department` (Role 2) | **رئيس مصلحة حماية المستهلك وقمع الغش** |
 | **`chef_concurrence`** | `chef123` | `head_of_department` (Role 2) | **رئيس مصلحة المنافسة والتحقيقات الاقتصادية** |
 | **`bureau_user`** / **`chef_bureau`** | `bureau123` | `bureau_chief` (Role 3) | **رئيس مكتب المستخدمين** |
-| **`inspecteur`** | `chef123` | `inspector` (Role 4) | **مفتش رقابة مرتبط بالموظف الفعلي** |
-| **`kamel_kribaa`** | `chef123` | `inspector` (Role 4) | **مفتش رئيسي لقمع الغش** |
-| **`djamel_lounis`** | `chef123` | `inspector` (Role 4) | **محقق رئيسي للمنافسة** |
+*(ملاحظة: لا توجد أي حسابات أو مفتشين وهميين في قاعدة البيانات — يتم إدراج الموظفين والمفتشين الفعليين حصراً عبر لوحة الإدارة)*
 
 ---
 
