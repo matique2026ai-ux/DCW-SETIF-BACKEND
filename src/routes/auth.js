@@ -30,6 +30,17 @@ function normalizeUser(u) {
   };
 }
 
+async function updateUserDevice(db, pg, deviceId, deviceName, userId) {
+  try {
+    const query = pg
+      ? `UPDATE "UtilisateursSysteme" SET "DeviceId" = $1, "DeviceName" = $2 WHERE "Id" = $3`
+      : `UPDATE UtilisateursSysteme SET DeviceId = ?, DeviceName = ? WHERE Id = ?`;
+    await db.query(query, [deviceId, deviceName, userId]);
+  } catch (err) {
+    console.error('Update user device error:', err.message);
+  }
+}
+
 router.post('/login', async (req, res) => {
   try {
     const db = await getConnection();
@@ -107,30 +118,14 @@ router.post('/login', async (req, res) => {
         // Logging in from Mobile App: Enforce Device Locking
         if (!u.deviceId) {
           // First time enrollment: Bind admin's phone hardware ID
-          try {
-            await db.query(
-              pg
-                ? `UPDATE "UtilisateursSysteme" SET "DeviceId" = $1, "DeviceName" = $2 WHERE "Id" = $3`
-                : `UPDATE UtilisateursSysteme SET DeviceId = ?, DeviceName = ? WHERE Id = ?`,
-              [incomingDeviceId, 'هاتف مدير النظام المعتمد', u.id]
-            );
-            u.deviceId = incomingDeviceId;
-          } catch (devErr) {
-            console.error('Admin device enrollment error:', devErr.message);
-          }
+          await updateUserDevice(db, pg, incomingDeviceId, 'هاتف مدير النظام المعتمد', u.id);
+          u.deviceId = incomingDeviceId;
         } else if (u.deviceId !== incomingDeviceId) {
           // Another phone is trying to log in as admin!
           const requiredPin = u.masterPin || '202600';
           if (masterPin === requiredPin || adminOverride === 'admin123' || adminOverride === 'DCW-OVERRIDE') {
-            try {
-              await db.query(
-                pg
-                  ? `UPDATE "UtilisateursSysteme" SET "DeviceId" = $1, "DeviceName" = $2 WHERE "Id" = $3`
-                  : `UPDATE UtilisateursSysteme SET DeviceId = ?, DeviceName = ? WHERE Id = ?`,
-                [incomingDeviceId, 'هاتف مدير النظام المعتمد (محدث)', u.id]
-              );
-              u.deviceId = incomingDeviceId;
-            } catch (_) {}
+            await updateUserDevice(db, pg, incomingDeviceId, 'هاتف مدير النظام المعتمد (محدث)', u.id);
+            u.deviceId = incomingDeviceId;
           } else {
             return res.status(403).json({
               error: 'تنبيه أمني صارم: هذا الحساب مقترن بهاتف المدير المعتمد فقط. يمنع تسجيل الدخول من أجهزة أندرويد أخرى لمنع انتحال الشخصية أو السرقة.',
@@ -154,32 +149,41 @@ router.post('/login', async (req, res) => {
       if (incomingDeviceId) {
         if (!u.deviceId) {
           // First-time enrollment: Bind this device to the inspector
-          try {
-            await db.query(
-              pg
-                ? `UPDATE "UtilisateursSysteme" SET "DeviceId" = $1, "DeviceName" = $2 WHERE "Id" = $3`
-                : `UPDATE UtilisateursSysteme SET DeviceId = ?, DeviceName = ? WHERE Id = ?`,
-              [incomingDeviceId, incomingDeviceName || 'هاتف مفتش معتمد', u.id]
-            );
-            u.deviceId = incomingDeviceId;
-          } catch (devErr) {
-            console.error('Device enrollment error:', devErr.message);
-          }
+          await updateUserDevice(db, pg, incomingDeviceId, incomingDeviceName || 'هاتف مفتش معتمد', u.id);
+          u.deviceId = incomingDeviceId;
         } else if (u.deviceId !== incomingDeviceId) {
           // Check for admin emergency override code
           if (adminOverride === 'admin123' || adminOverride === 'DCW-OVERRIDE') {
-            try {
-              await db.query(
-                pg
-                  ? `UPDATE "UtilisateursSysteme" SET "DeviceId" = $1, "DeviceName" = $2 WHERE "Id" = $3`
-                  : `UPDATE UtilisateursSysteme SET DeviceId = ?, DeviceName = ? WHERE Id = ?`,
-                [incomingDeviceId, incomingDeviceName || 'هاتف معتمد (محدث بترخيص)', u.id]
-              );
-              u.deviceId = incomingDeviceId;
-            } catch (_) {}
+            await updateUserDevice(db, pg, incomingDeviceId, incomingDeviceName || 'هاتف معتمد (محدث بترخيص)', u.id);
+            u.deviceId = incomingDeviceId;
           } else {
             return res.status(403).json({
               error: 'تنبيه أمني: هذا الحساب مقترن بهاتف معتمد آخر لمنع انتحال الشخصية أو التسجيل من أجهزة مجهولة. إذا قمت بتغيير هاتفك، يرجى التواصل مع مدير النظام التقني (Admin) لإعادة تعيين الجهاز.',
+              isDeviceMismatch: true,
+              boundDeviceId: u.deviceId,
+            });
+          }
+        }
+      }
+    } else {
+      // Administrative & Executive roles (Director: 1, Head of Department: 2, Bureau Chief: 3):
+      if (incomingDeviceId) {
+        const roleLabel = u.roleId === 1
+          ? 'المدير الولائي'
+          : (u.roleId === 2 ? 'رئيس المصلحة' : 'رئيس مكتب المستخدمين');
+
+        if (!u.deviceId) {
+          // First-time mobile enrollment: Bind this smartphone to the administrator
+          await updateUserDevice(db, pg, incomingDeviceId, incomingDeviceName || `هاتف ${roleLabel} المعتمد`, u.id);
+          u.deviceId = incomingDeviceId;
+        } else if (u.deviceId !== incomingDeviceId) {
+          // Check for admin emergency override code
+          if (adminOverride === 'admin123' || adminOverride === 'DCW-OVERRIDE') {
+            await updateUserDevice(db, pg, incomingDeviceId, incomingDeviceName || `هاتف ${roleLabel} المعتمد (محدث بترخيص)`, u.id);
+            u.deviceId = incomingDeviceId;
+          } else {
+            return res.status(403).json({
+              error: `تنبيه أمني صارم: هذا الحساب مقترن بهاتف ${roleLabel} المعتمد فقط. يمنع تسجيل الدخول من هواتف أخرى لمنع انتحال الشخصية أو التسريب. إذا قمت بتغيير هاتفك، يرجى التواصل مع مدير النظام التقني (Admin) لإعادة تعيين الجهاز.`,
               isDeviceMismatch: true,
               boundDeviceId: u.deviceId,
             });
@@ -230,7 +234,7 @@ router.post('/users/:id/reset-device', async (req, res) => {
         : `UPDATE UtilisateursSysteme SET DeviceId = NULL, DeviceName = NULL WHERE Id = ?`,
       [userId]
     );
-    res.json({ success: true, message: 'تم إلغاء ربط الجهاز بنجاح ✅ يمكن للمفتش الآن تسجيل الدخول بجهازه الجديد ليتم اعتماده تلقائياً.' });
+    res.json({ success: true, message: 'تم إلغاء ربط الجهاز بنجاح ✅ يمكن للمستخدم الآن تسجيل الدخول بجهازه الجديد ليتم اعتماده تلقائياً.' });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في إلغاء ربط الجهاز: ' + err.message });
   }
