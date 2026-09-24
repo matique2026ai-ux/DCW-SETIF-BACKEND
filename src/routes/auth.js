@@ -51,7 +51,13 @@ router.post('/login', async (req, res) => {
     const incomingDeviceName = (req.body.deviceName || '').trim();
     const adminOverride = (req.body.adminOverrideCode || '').trim();
     const masterPin = (req.body.masterPin || req.body.adminPin || '').trim();
-    const isWebClient = req.body.isWeb === true || (!incomingDeviceId && (req.headers['user-agent'] || '').includes('Mozilla'));
+
+    const ua = (req.headers['user-agent'] || '').toLowerCase();
+    const isIOS = /iphone|ipad|ipod/.test(ua) || req.body.isIOS === true;
+    const isAndroidMobile = /android/.test(ua) && /mobile/.test(ua);
+    const isMobileDevice = isIOS || isAndroidMobile || /mobile/.test(ua);
+    const isDesktop = !isMobileDevice && (/windows nt|macintosh|linux x86_64|cros/.test(ua) || req.body.isDesktop === true);
+    const isWebClient = req.body.isWeb === true || req.body.isWeb === 'true' || (!incomingDeviceId && ua.includes('mozilla'));
 
     if (!rawUsername || !rawPassword) {
       return res.status(400).json({ error: 'أدخل اسم المستخدم وكلمة المرور' });
@@ -96,39 +102,40 @@ router.post('/login', async (req, res) => {
 
     const role = ROLE_MAP[u.roleId] || 'inspector';
 
-    // 🛡️ Dual Shield Security & Anti-Spoofing Check for Admin (Role 5) and Inspectors (Role 4):
-    if (u.roleId === 5) {
-      // Technical Master Admin security:
+    // 🛡️ Security Check for Administrative & Executive Leadership (Admin: 5, Director: 1, Dept Heads: 2, Bureau Chief: 3):
+    if (u.roleId === 5 || u.roleId === 1 || u.roleId === 2 || u.roleId === 3) {
+      const roleLabel = u.roleId === 5
+        ? 'مدير النظام التقني'
+        : (u.roleId === 1 ? 'المدير الولائي' : (u.roleId === 2 ? 'رئيس المصلحة' : 'رئيس مكتب المستخدمين'));
+
+      // If logging in from Web Browser (Office PC / Laptop):
       if (isWebClient) {
-        // Logging in from a Web Browser: Require Master Security PIN
         const requiredPin = u.masterPin || '202600';
         if (!masterPin) {
           return res.status(403).json({
-            error: 'تنبيه أمني: يتطلب تسجيل دخول مدير النظام من المتصفح إدخال رمز الأمان السري (Master PIN).',
+            error: `تنبيه أمني: يتطلب تسجيل دخول ${roleLabel} من المتصفح إدخال رمز الأمان السري (PIN Code) لتأكيد الهوية.`,
             requiresMasterPin: true,
           });
         }
         if (masterPin !== requiredPin) {
           return res.status(403).json({
-            error: 'رمز الأمان السري (Master PIN) غير صحيح ❌ يرجى التأكد وإعادة المحاولة.',
+            error: 'رمز الأمان السري (PIN Code) غير صحيح ❌ يرجى التأكد وإعادة المحاولة.',
             requiresMasterPin: true,
           });
         }
       } else if (incomingDeviceId) {
-        // Logging in from Mobile App: Enforce Device Locking
+        // Logging in from Mobile App: Enforce Mobile Device Locking
         if (!u.deviceId) {
-          // First time enrollment: Bind admin's phone hardware ID
-          await updateUserDevice(db, pg, incomingDeviceId, 'هاتف مدير النظام المعتمد', u.id);
+          await updateUserDevice(db, pg, incomingDeviceId, incomingDeviceName || `هاتف ${roleLabel} المعتمد`, u.id);
           u.deviceId = incomingDeviceId;
         } else if (u.deviceId !== incomingDeviceId) {
-          // Another phone is trying to log in as admin!
           const requiredPin = u.masterPin || '202600';
           if (masterPin === requiredPin || adminOverride === 'admin123' || adminOverride === 'DCW-OVERRIDE') {
-            await updateUserDevice(db, pg, incomingDeviceId, 'هاتف مدير النظام المعتمد (محدث)', u.id);
+            await updateUserDevice(db, pg, incomingDeviceId, incomingDeviceName || `هاتف ${roleLabel} المعتمد (محدث)`, u.id);
             u.deviceId = incomingDeviceId;
           } else {
             return res.status(403).json({
-              error: 'تنبيه أمني صارم: هذا الحساب مقترن بهاتف المدير المعتمد فقط. يمنع تسجيل الدخول من أجهزة أندرويد أخرى لمنع انتحال الشخصية أو السرقة.',
+              error: `تنبيه أمني صارم: هذا الحساب مقترن بهاتف ${roleLabel} المعتمد فقط. يمنع تسجيل الدخول من هواتف أخرى لمنع انتحال الشخصية أو التسريب.`,
               isDeviceMismatch: true,
               boundDeviceId: u.deviceId,
               requiresMasterPin: true,
@@ -137,64 +144,41 @@ router.post('/login', async (req, res) => {
         }
       }
     } else if (u.roleId === 4) {
-      // Inspector security:
-      if (isWebClient) {
+      // 🛡️ Field Inspector Security Check:
+      // A. Strictly BLOCK Desktop PC/Laptop browsers (Windows, Mac Desktop, Linux Desktop):
+      if (isDesktop) {
         return res.status(403).json({
-          error: 'تنبيه أمني: حسابات المفتشين الميدانيين مخصصة حصراً للهواتف المعتمدة والميدان، ويمنع تسجيل الدخول بها من متصفحات الويب المكتبية لمنع تزوير البصمة الجغرافية.',
-          isWebBlocked: true,
-          boundDeviceId: u.deviceId,
+          error: '🚫 تنبيه أمني صارم: حساب المفتش الميداني مقيد حصراً بالهواتف المحمولة المعتمدة (تطبيق Android أو متصفح هاتف iPhone المعتمد). يمنع قطعياً تسجيل الدخول من أجهزة الكمبيوتر المكتبية منعاً لتزوير البصمة الجغرافية.',
+          isDesktopBlocked: true,
         });
       }
 
-      if (u.deviceId && !incomingDeviceId) {
+      // B. Mobile Device Enforcement (Android APK or iPhone Safari):
+      const effectiveDeviceId = incomingDeviceId;
+
+      if (!effectiveDeviceId && u.deviceId) {
         return res.status(403).json({
-          error: 'تنبيه أمني: هذا الحساب مخصص للعمل الميداني ومقترن بهاتف معتمد فقط. يمنع تسجيل الدخول من متصفح غير معرّف أو جهاز مجهول الهوية.',
+          error: 'تنبيه أمني: هذا الحساب مخصص للعمل الميداني ومقترن بهاتف معتمد فقط. يمنع تسجيل الدخول من جهاز مجهول الهوية.',
           isDeviceMismatch: true,
           boundDeviceId: u.deviceId,
         });
       }
 
-      if (incomingDeviceId) {
+      if (effectiveDeviceId) {
         if (!u.deviceId) {
-          // First-time enrollment: Bind this device to the inspector
-          await updateUserDevice(db, pg, incomingDeviceId, incomingDeviceName || 'هاتف مفتش معتمد', u.id);
-          u.deviceId = incomingDeviceId;
-        } else if (u.deviceId !== incomingDeviceId) {
+          // First-time enrollment: Bind this mobile device (Android APK or iPhone Safari)
+          const deviceLabel = isIOS ? 'هاتف iPhone معتمد (Safari)' : (incomingDeviceName || 'هاتف مفتش معتمد');
+          await updateUserDevice(db, pg, effectiveDeviceId, deviceLabel, u.id);
+          u.deviceId = effectiveDeviceId;
+        } else if (u.deviceId !== effectiveDeviceId) {
           // Check for admin emergency override code
           if (adminOverride === 'admin123' || adminOverride === 'DCW-OVERRIDE') {
-            await updateUserDevice(db, pg, incomingDeviceId, incomingDeviceName || 'هاتف معتمد (محدث بترخيص)', u.id);
-            u.deviceId = incomingDeviceId;
+            const deviceLabel = isIOS ? 'هاتف iPhone معتمد (محدث بترخيص)' : (incomingDeviceName || 'هاتف معتمد (محدث بترخيص)');
+            await updateUserDevice(db, pg, effectiveDeviceId, deviceLabel, u.id);
+            u.deviceId = effectiveDeviceId;
           } else {
             return res.status(403).json({
-              error: 'تنبيه أمني: هذا الحساب مقترن بهاتف معتمد آخر لمنع انتحال الشخصية أو التسجيل من أجهزة مجهولة. إذا قمت بتغيير هاتفك، يرجى التواصل مع مدير النظام التقني (Admin) لإعادة تعيين الجهاز.',
-              isDeviceMismatch: true,
-              boundDeviceId: u.deviceId,
-            });
-          }
-        }
-      }
-    } else {
-      // Administrative & Executive roles (Director: 1, Head of Department: 2, Bureau Chief: 3):
-      if (isWebClient) {
-        // ✅ Allow Web Browser login for office administrative terminals (PC / Laptop / Web Browser)!
-        // Bureau Chief, Dept Heads, and Director are administrative officers who manage staff files, registry and oversight from desktop PCs.
-      } else if (incomingDeviceId) {
-        const roleLabel = u.roleId === 1
-          ? 'المدير الولائي'
-          : (u.roleId === 2 ? 'رئيس المصلحة' : 'رئيس مكتب المستخدمين');
-
-        if (!u.deviceId) {
-          // First-time mobile enrollment: Bind this smartphone to the administrator
-          await updateUserDevice(db, pg, incomingDeviceId, incomingDeviceName || `هاتف ${roleLabel} المعتمد`, u.id);
-          u.deviceId = incomingDeviceId;
-        } else if (u.deviceId !== incomingDeviceId) {
-          // Check for admin emergency override code
-          if (adminOverride === 'admin123' || adminOverride === 'DCW-OVERRIDE') {
-            await updateUserDevice(db, pg, incomingDeviceId, incomingDeviceName || `هاتف ${roleLabel} المعتمد (محدث بترخيص)`, u.id);
-            u.deviceId = incomingDeviceId;
-          } else {
-            return res.status(403).json({
-              error: `تنبيه أمني صارم: هذا الحساب مقترن بهاتف ${roleLabel} المعتمد فقط. يمنع تسجيل الدخول من هواتف أخرى لمنع انتحال الشخصية أو التسريب. إذا قمت بتغيير هاتفك، يرجى التواصل مع مدير النظام التقني (Admin) لإعادة تعيين الجهاز.`,
+              error: `تنبيه أمني صارم: هذا الحساب مقترن بـ (${u.deviceName || 'الهاتف المعتمد'}) المسجل رسمياً لهذا المفتش لمنع انتحال الشخصية أو التلاعب بالبصمة. إذا قمت بتغيير هاتفك، يرجى التواصل مع مدير النظام التقني (Admin) لإعادة تعيين الجهاز.`,
               isDeviceMismatch: true,
               boundDeviceId: u.deviceId,
             });
@@ -447,12 +431,12 @@ router.get('/users', async (req, res) => {
     const db = await getConnection();
     const pg = isPostgres();
     const query = pg
-      ? `SELECT u."Id", u."NomUtilisateur", u."NomComplet", u."Role", u."EstActif", u."DateCreation", u."DerniereConnexion", u."EmployeeId",
+      ? `SELECT u."Id", u."NomUtilisateur", u."NomComplet", u."Role", u."EstActif", u."DateCreation", u."DerniereConnexion", u."EmployeeId", u."DeviceId", u."DeviceName", u."MasterPin",
                 e."Nom" as "EmpNom", e."Prenom" as "EmpPrenom", e."Service" as "EmpService", e."Grade" as "EmpGrade"
          FROM "UtilisateursSysteme" u
          LEFT JOIN "Employes" e ON u."EmployeeId" = e."Id"
          ORDER BY u."Id" ASC`
-      : `SELECT u.Id, u.NomUtilisateur, u.NomComplet, u.Role, u.EstActif, u.DateCreation, u.DerniereConnexion, u.EmployeeId,
+      : `SELECT u.Id, u.NomUtilisateur, u.NomComplet, u.Role, u.EstActif, u.DateCreation, u.DerniereConnexion, u.EmployeeId, u.DeviceId, u.DeviceName, u.MasterPin,
                 e.Nom as EmpNom, e.Prenom as EmpPrenom, e.Service as EmpService, e.Grade as EmpGrade
          FROM UtilisateursSysteme u
          LEFT JOIN Employes e ON u.EmployeeId = e.Id
@@ -469,6 +453,9 @@ router.get('/users', async (req, res) => {
       createdAt: u.DateCreation || u.datecreation,
       lastLogin: u.DerniereConnexion || u.derniereconnexion,
       employeeId: u.EmployeeId || u.employeeid,
+      deviceId: u.DeviceId || u.deviceid || null,
+      deviceName: u.DeviceName || u.devicename || null,
+      masterPin: u.MasterPin || u.masterpin || '202600',
       empNom: u.EmpNom || u.empnom,
       empPrenom: u.EmpPrenom || u.empprenom,
       empService: u.EmpService || u.empservice,
@@ -485,7 +472,7 @@ router.get('/users', async (req, res) => {
 // Admin: Create a new system user
 router.post('/users', async (req, res) => {
   try {
-    const { username, password, fullName, role, employeeId } = req.body;
+    const { username, password, fullName, role, employeeId, masterPin } = req.body;
     if (!username || !password || !fullName) {
       return res.status(400).json({ error: 'اسم المستخدم وكلمة المرور والاسم الكامل حقول إجبارية' });
     }
@@ -515,14 +502,15 @@ router.post('/users', async (req, res) => {
     };
     const dbRole = typeof role === 'number' ? role : (REVERSE_ROLE_MAP[role] || 4);
     const hash = await bcrypt.hash(password.trim(), 10);
+    const effectivePin = (masterPin || '202600').toString().trim();
 
     const insertQuery = pg
-      ? `INSERT INTO "UtilisateursSysteme" ("NomUtilisateur", "MotDePasseHash", "NomComplet", "Role", "EstActif", "DateCreation", "EmployeeId")
-         VALUES ($1, $2, $3, $4, true, NOW(), $5) RETURNING "Id"`
-      : `INSERT INTO UtilisateursSysteme (NomUtilisateur, MotDePasseHash, NomComplet, Role, EstActif, DateCreation, EmployeeId)
-         VALUES (?, ?, ?, ?, 1, GETDATE(), ?)`;
+      ? `INSERT INTO "UtilisateursSysteme" ("NomUtilisateur", "MotDePasseHash", "NomComplet", "Role", "EstActif", "DateCreation", "EmployeeId", "MasterPin")
+         VALUES ($1, $2, $3, $4, true, NOW(), $5, $6) RETURNING "Id"`
+      : `INSERT INTO UtilisateursSysteme (NomUtilisateur, MotDePasseHash, NomComplet, Role, EstActif, DateCreation, EmployeeId, MasterPin)
+         VALUES (?, ?, ?, ?, 1, GETDATE(), ?, ?)`;
 
-    await db.query(insertQuery, [cleanUsername, hash, fullName.trim(), dbRole, employeeId || null]);
+    await db.query(insertQuery, [cleanUsername, hash, fullName.trim(), dbRole, employeeId || null, effectivePin]);
 
     res.json({ success: true, message: 'تم إنشاء المستخدم بنجاح ✅' });
   } catch (err) {
@@ -535,7 +523,7 @@ router.post('/users', async (req, res) => {
 router.put('/users/:id', async (req, res) => {
   try {
     const userId = parseInt(req.params.id, 10);
-    const { fullName, role, isActive, employeeId } = req.body;
+    const { fullName, role, isActive, employeeId, masterPin } = req.body;
 
     const db = await getConnection();
     const pg = isPostgres();
@@ -552,13 +540,15 @@ router.put('/users/:id', async (req, res) => {
 
     const updateQuery = pg
       ? `UPDATE "UtilisateursSysteme"
-         SET "NomComplet" = $1, "Role" = $2, "EstActif" = $3, "EmployeeId" = $4
-         WHERE "Id" = $5`
+         SET "NomComplet" = $1, "Role" = $2, "EstActif" = $3, "EmployeeId" = $4,
+             "MasterPin" = COALESCE($5, "MasterPin")
+         WHERE "Id" = $6`
       : `UPDATE UtilisateursSysteme
-         SET NomComplet = ?, Role = ?, EstActif = ?, EmployeeId = ?
+         SET NomComplet = ?, Role = ?, EstActif = ?, EmployeeId = ?,
+             MasterPin = COALESCE(?, MasterPin)
          WHERE Id = ?`;
 
-    await db.query(updateQuery, [fullName, dbRole, activeVal, employeeId || null, userId]);
+    await db.query(updateQuery, [fullName, dbRole, activeVal, employeeId || null, masterPin || null, userId]);
 
     res.json({ success: true, message: 'تم تحديث بيانات المستخدم بنجاح ✅' });
   } catch (err) {
