@@ -138,6 +138,14 @@ router.post('/login', async (req, res) => {
       }
     } else if (u.roleId === 4) {
       // Inspector security:
+      if (isWebClient) {
+        return res.status(403).json({
+          error: 'تنبيه أمني: حسابات المفتشين الميدانيين مخصصة حصراً للهواتف المعتمدة والميدان، ويمنع تسجيل الدخول بها من متصفحات الويب المكتبية لمنع تزوير البصمة الجغرافية.',
+          isWebBlocked: true,
+          boundDeviceId: u.deviceId,
+        });
+      }
+
       if (u.deviceId && !incomingDeviceId) {
         return res.status(403).json({
           error: 'تنبيه أمني: هذا الحساب مخصص للعمل الميداني ومقترن بهاتف معتمد فقط. يمنع تسجيل الدخول من متصفح غير معرّف أو جهاز مجهول الهوية.',
@@ -167,7 +175,10 @@ router.post('/login', async (req, res) => {
       }
     } else {
       // Administrative & Executive roles (Director: 1, Head of Department: 2, Bureau Chief: 3):
-      if (incomingDeviceId) {
+      if (isWebClient) {
+        // ✅ Allow Web Browser login for office administrative terminals (PC / Laptop / Web Browser)!
+        // Bureau Chief, Dept Heads, and Director are administrative officers who manage staff files, registry and oversight from desktop PCs.
+      } else if (incomingDeviceId) {
         const roleLabel = u.roleId === 1
           ? 'المدير الولائي'
           : (u.roleId === 2 ? 'رئيس المصلحة' : 'رئيس مكتب المستخدمين');
