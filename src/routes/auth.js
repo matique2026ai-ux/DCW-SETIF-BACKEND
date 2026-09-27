@@ -147,19 +147,28 @@ router.post('/login', async (req, res) => {
       }
     } else if (u.roleId === 4) {
       // 🛡️ Field Inspector Security Check:
-      // Mobile Device Enrollment / Enforcement (Android APK or iPhone Safari):
+      // 🚫 STRICT ENFORCEMENT: Field inspectors are strictly forbidden from logging in via any web browser
+      // (neither mobile phone browser nor PC/Laptop browser). They can only access via the installed native APK.
+      if (isWebClient || req.body.isWeb === true || req.body.isWeb === 'true') {
+        return res.status(403).json({
+          error: '🚫 الولوج عبر المتصفح غير مصرّح به للمفتشين الميدانيين: حساب المفتش مقيّد حصرياً بتطبيق الهاتف المحمول المصطب (DCW-SETIF-TRACKER). يمنع منعاً باتاً فتح الحساب من متصفح الهاتف أو الكمبيوتر.',
+          code: 'INSPECTOR_WEB_FORBIDDEN',
+        });
+      }
+
+      // Mobile Device Enrollment / Enforcement (Android APK):
       const effectiveDeviceId = incomingDeviceId;
 
       if (effectiveDeviceId) {
         if (!u.deviceId) {
           // First-time enrollment: Bind this mobile device
-          const deviceLabel = isIOS ? 'هاتف iPhone معتمد (Safari)' : (incomingDeviceName || 'هاتف مفتش معتمد');
+          const deviceLabel = incomingDeviceName || 'هاتف مفتش معتمد';
           await updateUserDevice(db, pg, effectiveDeviceId, deviceLabel, u.id);
           u.deviceId = effectiveDeviceId;
         } else if (u.deviceId !== effectiveDeviceId) {
           // Check for admin emergency override code or master PIN
           if (adminOverride === 'admin123' || adminOverride === 'DCW-OVERRIDE' || (masterPin && masterPin === (u.masterPin || '202600'))) {
-            const deviceLabel = isIOS ? 'هاتف iPhone معتمد (محدث بترخيص)' : (incomingDeviceName || 'هاتف معتمد (محدث بترخيص)');
+            const deviceLabel = incomingDeviceName || 'هاتف معتمد (محدث بترخيص)';
             await updateUserDevice(db, pg, effectiveDeviceId, deviceLabel, u.id);
             u.deviceId = effectiveDeviceId;
           } else {

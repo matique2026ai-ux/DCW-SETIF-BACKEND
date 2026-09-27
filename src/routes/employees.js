@@ -28,6 +28,7 @@ router.get('/', async (req, res) => {
                 a."UpdatedAt"
          FROM "Employes" e
          LEFT JOIN "TrackerEmployeeAdmin" a ON e."Id" = a."EmployeeId"
+         WHERE e."Nom" != 'tracker_admin' AND e."NomAr" != 'tracker_admin'
          ORDER BY e."Id", e."Service", e."Nom", e."Prenom"`
       : `SELECT DISTINCT
                 e.Id, e.NumeroMatricule, e.Nom, e.Prenom, e.NomAr, e.PrenomAr, e.Grade,
@@ -40,6 +41,7 @@ router.get('/', async (req, res) => {
                 a.UpdatedAt
          FROM Employes e
          LEFT JOIN TrackerEmployeeAdmin a ON e.Id = a.EmployeeId
+         WHERE e.Nom != 'tracker_admin' AND e.NomAr != 'tracker_admin'
          ORDER BY e.Service, e.Nom, e.Prenom`;
 
     const result = await db.query(query, []);
@@ -50,10 +52,10 @@ router.get('/', async (req, res) => {
         pg
           ? `SELECT u."Id", u."NomComplet", u."NomUtilisateur", u."Service", u."EmployeeId"
              FROM "UtilisateursSysteme" u
-             WHERE u."Role" = 4 AND u."EstActif" = true`
+             WHERE u."Role" = 4 AND u."EstActif" = true AND u."NomUtilisateur" != 'tracker_admin'`
           : `SELECT u.Id, u.NomComplet, u.NomUtilisateur, u.Service, u.EmployeeId
              FROM UtilisateursSysteme u
-             WHERE u.Role = 4 AND u.EstActif = 1`
+             WHERE u.Role = 4 AND u.EstActif = 1 AND u.NomUtilisateur != 'tracker_admin'`
       );
       const existingIds = new Set((result || []).map(r => Number(r.Id || r.id)));
       for (const u of (extraUsers || [])) {

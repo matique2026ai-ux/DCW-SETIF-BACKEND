@@ -1664,6 +1664,15 @@ async function seedUsers() {
         }
       }
     }
+
+    // Ensure tracker_admin (System Admin - Role 5) never has phantom employee records in Employes
+    if (pg) {
+      await db.query(`DELETE FROM "Employes" WHERE "Nom" = 'tracker_admin' OR "NomAr" = 'tracker_admin'`);
+      await db.query(`DELETE FROM "TrackerEmployeeAdmin" WHERE "EmployeeId" NOT IN (SELECT "Id" FROM "Employes")`);
+    } else {
+      await db.query(`DELETE FROM Employes WHERE Nom = 'tracker_admin' OR NomAr = 'tracker_admin'`);
+      await db.query(`DELETE FROM TrackerEmployeeAdmin WHERE EmployeeId NOT IN (SELECT Id FROM Employes)`);
+    }
   } catch (err) {
     console.log('seedUsers error:', err.message);
   }
