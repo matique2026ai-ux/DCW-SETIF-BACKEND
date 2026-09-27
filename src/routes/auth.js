@@ -187,8 +187,11 @@ router.post('/login', async (req, res) => {
       { expiresIn: '24h' }
     );
 
-    const isExecutiveOfficial = (u.roleId === 1 || u.roleId === 2 || u.roleId === 3);
-    const mustChange = isExecutiveOfficial && (
+    // tracker_admin (roleId=5, username='tracker_admin') is sovereignly protected — never forced to change.
+    const isTrackerAdmin = u.username.toLowerCase() === 'tracker_admin';
+    // All leadership roles (director=1, head=2, bureau=3, admin=5) must change default PIN on first login.
+    const isLeadershipRole = (u.roleId === 1 || u.roleId === 2 || u.roleId === 3 || u.roleId === 5);
+    const mustChange = !isTrackerAdmin && isLeadershipRole && (
       u.mustChangeCredentials === true ||
       u.masterPin === '202600' ||
       u.lastLogin == null
