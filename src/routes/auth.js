@@ -605,55 +605,48 @@ router.post('/users', async (req, res) => {
     const effectivePin = (masterPin || '202600').toString().trim();
 
     let finalEmpId = employeeId ? parseInt(employeeId) : null;
+
+    // 🏛️ STRICT CIVIL SERVICE RULE:
+    // Operational accounts (Roles 1, 2, 3, 4) CANNOT be created without a pre-existing real employee profile from Employes table (created by bureau_chief).
+    // NO fake/mock employees will ever be auto-generated!
+    if (dbRole !== 5) {
+      if (!finalEmpId) {
+        return res.status(400).json({
+          error: '⚠️ لا يمكن إنشاء حساب مستخدم دون ربطه بملف إداري رسمي مسجل مسبقاً لدى مكتب المستخدمين.',
+          code: 'EMPLOYEE_LINK_REQUIRED',
+        });
+      }
+
+      // Verify employee exists in Employes
+      const empRows = await db.query(
+        pg
+          ? 'SELECT "Id", "Nom", "Prenom", "NomAr", "PrenomAr", "Service" FROM "Employes" WHERE "Id" = $1'
+          : 'SELECT Id, Nom, Prenom, NomAr, PrenomAr, Service FROM Employes WHERE Id = ?',
+        [finalEmpId]
+      );
+      if (!empRows || empRows.length === 0) {
+        return res.status(400).json({ error: 'الملف الإداري المحدد للموظف غير موجود في سجلات مكتب المستخدمين' });
+      }
+
+      // Verify employee is not already linked to another active account
+      const alreadyLinked = await db.query(
+        pg
+          ? 'SELECT "Id", "NomUtilisateur" FROM "UtilisateursSysteme" WHERE "EmployeeId" = $1'
+          : 'SELECT Id, NomUtilisateur FROM UtilisateursSysteme WHERE EmployeeId = ?',
+        [finalEmpId]
+      );
+      if (alreadyLinked && alreadyLinked.length > 0) {
+        return res.status(400).json({
+          error: `⚠️ هذا الملف الإداري مرتبط بالفعل بحساب المستخدم: (${alreadyLinked[0].NomUtilisateur || alreadyLinked[0].nomutilisateur}). لا يمكن ربط الموظف بأكثر من حساب واحد.`,
+        });
+      }
+    }
+
     const assignedService = (service || '').trim() ||
       (dbRole === 2 && cleanUsername.includes('concurrence') ? 'مصلحة المنافسة والتحقيقات الاقتصادية' :
       (dbRole === 2 && cleanUsername.includes('administration') ? 'مصلحة الإدارة والوسائل' :
       (dbRole === 1 ? 'المديرية الولائية' :
       (dbRole === 3 ? 'مكتب المستخدمين' : 'مصلحة حماية المستهلك وقمع الغش'))));
-
-    // Auto-create Civil Service Employee Profile if not selected from list (ensures unified identity)
-    if (!finalEmpId && dbRole !== 5) {
-      const matricule = 'MAT-' + (dbRole === 4 ? 'INSP' : (dbRole === 2 ? 'CHEF' : (dbRole === 3 ? 'BUR' : (dbRole === 1 ? 'DIR' : 'EMP')))) + '-' + Math.floor(1000 + Math.random() * 9000);
-      const grade = dbRole === 4 ? 'مفتش رئيسي للرقابة وقمع الغش' : (dbRole === 2 ? 'رئيس مصلحة' : (dbRole === 3 ? 'رئيس مكتب المستخدمين' : (dbRole === 1 ? 'المدير الولائي' : 'موظف')));
-      const parts = fullName.trim().split(' ');
-      const nom = parts[0] || fullName.trim();
-      const prenom = parts.slice(1).join(' ') || '';
-
-      if (pg) {
-        const empRes = await db.query(
-          `INSERT INTO "Employes" ("NumeroMatricule", "Nom", "Prenom", "NomAr", "PrenomAr", "Grade", "Service", "FonctionExercee", "EstActif")
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true) RETURNING "Id"`,
-          [matricule, cleanUsername, '', nom, prenom, grade, assignedService, grade]
-        );
-        finalEmpId = empRes[0]?.Id || empRes[0]?.id;
-      } else {
-        await db.query(
-          `INSERT INTO Employes (NumeroMatricule, Nom, Prenom, NomAr, PrenomAr, Grade, Service, FonctionExercee, EstActif)
-           VALUES (?, ?, '', ?, ?, ?, ?, ?, 1)`,
-          [matricule, cleanUsername, nom, prenom, grade, assignedService, grade]
-        );
-        const lastEmp = await db.query('SELECT TOP 1 Id FROM Employes ORDER BY Id DESC');
-        finalEmpId = lastEmp[0]?.Id || lastEmp[0]?.id;
-      }
-
-      if (finalEmpId) {
-        if (pg) {
-          await db.query(
-            `INSERT INTO "TrackerEmployeeAdmin" ("EmployeeId", "AdministrativeStatus", "IsBrigadeLeader", "BrigadeName", "AssignedDepartment", "AssignedPosition", "UpdatedAt")
-             VALUES ($1, 'active', false, 'فرقة تفتيش ميدانية', $2, $3, NOW())
-             ON CONFLICT ("EmployeeId") DO UPDATE SET "AssignedDepartment" = EXCLUDED."AssignedDepartment"`,
-            [finalEmpId, assignedService, grade]
-          );
-        } else {
-          await db.query(
-            `IF NOT EXISTS (SELECT 1 FROM TrackerEmployeeAdmin WHERE EmployeeId = ?)
-             INSERT INTO TrackerEmployeeAdmin (EmployeeId, AdministrativeStatus, IsBrigadeLeader, BrigadeName, AssignedDepartment, AssignedPosition, UpdatedAt)
-             VALUES (?, 'active', 0, 'فرقة تفتيش ميدانية', ?, ?, GETDATE())`,
-            [finalEmpId, finalEmpId, assignedService, grade]
-          );
-        }
-      }
-    }
 
     const insertQuery = pg
       ? `INSERT INTO "UtilisateursSysteme" ("NomUtilisateur", "MotDePasseHash", "NomComplet", "Role", "EstActif", "DateCreation", "EmployeeId", "MasterPin", "Service")

@@ -1698,37 +1698,6 @@ async function linkExistingUsersToEmployees() {
   const pg = isPostgres();
   try {
     if (pg) {
-      // Find any user with Role = 4 (inspector) who has EmployeeId = null, and create their matching Employes profile
-      const unlinkedInspectors = await db.query(
-        `SELECT "Id", "NomUtilisateur", "NomComplet", "Service" FROM "UtilisateursSysteme" WHERE "Role" = 4 AND "EmployeeId" IS NULL`
-      );
-      for (const u of unlinkedInspectors) {
-        const uId = u.Id || u.id;
-        const matricule = 'MAT-INSP-' + (1000 + uId);
-        const sName = u.Service || u.service || 'مصلحة حماية المستهلك وقمع الغش';
-        const parts = (u.NomComplet || u.nomcomplet || u.NomUtilisateur || '').trim().split(' ');
-        const nom = parts[0] || u.NomUtilisateur;
-        const prenom = parts.slice(1).join(' ') || '';
-
-        const empRes = await db.query(
-          `INSERT INTO "Employes" ("NumeroMatricule", "Nom", "Prenom", "NomAr", "PrenomAr", "Grade", "Service", "FonctionExercee", "EstActif")
-           VALUES ($1, $2, '', $3, $4, 'مفتش رئيسي للرقابة وقمع الغش', $5, 'مفتش رقابة وقمع الغش', true) RETURNING "Id"`,
-          [matricule, u.NomUtilisateur, nom, prenom, sName]
-        );
-        const newEmpId = empRes[0]?.Id || empRes[0]?.id;
-        if (newEmpId) {
-          await db.query(`UPDATE "UtilisateursSysteme" SET "EmployeeId" = $1, "Service" = $2 WHERE "Id" = $3`, [newEmpId, sName, uId]);
-          await db.query(
-            `INSERT INTO "TrackerEmployeeAdmin" ("EmployeeId", "AdministrativeStatus", "IsBrigadeLeader", "BrigadeName", "AssignedDepartment", "AssignedPosition", "UpdatedAt")
-             VALUES ($1, 'active', false, 'فرقة تفتيش ميدانية', $2, 'مفتش رقابة وقمع الغش', NOW())
-             ON CONFLICT ("EmployeeId") DO NOTHING`,
-            [newEmpId, sName]
-          );
-          await db.query(`UPDATE "TrackerAttendance" SET "EmployeeId" = $1 WHERE "EmployeeId" = $2`, [newEmpId, uId]);
-          await db.query(`UPDATE "TrackerVisits" SET "EmployeeId" = $1 WHERE "EmployeeId" = $2`, [newEmpId, uId]);
-        }
-      }
-
       // Fix any attendance or visits recorded with user.Id instead of real EmployeeId if EmployeeId is set
       const users = await db.query(`SELECT "Id", "EmployeeId" FROM "UtilisateursSysteme" WHERE "EmployeeId" IS NOT NULL`);
       for (const u of users) {
