@@ -1195,7 +1195,7 @@ app.get('/api/health', (req, res) => {
   } catch (_) {}
   res.json({
     status: 'ok',
-    version: 'v3.3.0-clean-production',
+    version: 'v3.4.0-monorepo-live',
     dbHost: dbHost,
     timezone: 'Africa/Algiers (UTC+1)',
     algeriaDate: getTodayAlgeria(),
