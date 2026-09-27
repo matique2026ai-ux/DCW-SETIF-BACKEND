@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <base href="/">
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="منصة الرقابة والتفتيش الميداني — مديرية التجارة الداخلية وضبط السوق الوطنية لولاية سطيف">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="مديرية التجارة سطيف">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon.png"/>
+  <link rel="shortcut icon" href="favicon.png" type="image/x-icon"/>
+
+  <title>مديرية التجارة سطيف — منصة الرقابة والتفتيش</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-font-smoothing: antialiased;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #1A0A1F;
+      font-family: 'Tajawal', -apple-system, BlinkMacSystemFont, sans-serif;
+      color: #ffffff;
+      min-height: 100vh;
+      overflow: hidden;
+      user-select: none;
+    }
+    #loading-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: radial-gradient(circle at top right, #2D1035 0%, #1A0A1F 60%, #0D0310 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 24px;
+      z-index: 999999;
+      pointer-events: all;
+      transition: opacity 0.4s ease, visibility 0.4s ease;
+    }
+    .logo-container {
+      position: relative;
+      width: 96px;
+      height: 96px;
+      margin-bottom: 24px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #FBF1C9 0%, #D4AF37 55%, #8B6508 100%);
+      box-shadow: 0 0 35px rgba(212, 175, 55, 0.45), 0 8px 24px rgba(0, 0, 0, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: pulseGlow 3s ease-in-out infinite;
+    }
+    .logo-inner {
+      width: 82px;
+      height: 82px;
+      border-radius: 50%;
+      background: #1A0A1F;
+      border: 1.5px solid rgba(212, 175, 55, 0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #D4AF37;
+      font-size: 32px;
+    }
+    @keyframes pulseGlow {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 30px rgba(212, 175, 55, 0.35); }
+      50% { transform: scale(1.03); box-shadow: 0 0 45px rgba(212, 175, 55, 0.6); }
+    }
+    .spinner {
+      width: 44px;
+      height: 44px;
+      border: 3px solid rgba(212, 175, 55, 0.15);
+      border-top-color: #D4AF37;
+      border-radius: 50%;
+      animation: spin 0.85s linear infinite;
+      margin-bottom: 18px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .loading-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 6px;
+      letter-spacing: 0.2px;
+    }
+    .loading-subtitle {
+      font-size: 13px;
+      color: #D4AF37;
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+    .loading-status {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.5);
+      margin-top: 8px;
+    }
+  </style>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for (let registration of registrations) {
+          registration.unregister();
+        }
+      });
+      if ('caches' in window) {
+        caches.keys().then(function(names) {
+          for (let name of names) caches.delete(name);
+        });
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="loading-container">
+    <div class="logo-container">
+      <div class="logo-inner">🏛️</div>
+    </div>
+    <div class="spinner"></div>
+    <div class="loading-title">منصة الرقابة والتفتيش الميداني</div>
+    <div class="loading-subtitle">مديرية التجارة الداخلية وضبط السوق — ولاية سطيف</div>
+    <div class="loading-status">جاري تهيئة المنظومة الرقمية...</div>
+  </div>
+
+  <script>
+    function removeLoadingScreen() {
+      var loader = document.getElementById('loading-container');
+      if (loader && loader.style.opacity !== '0') {
+        loader.style.opacity = '0';
+        loader.style.pointerEvents = 'none';
+        setTimeout(function() {
+          if (loader && loader.parentNode) {
+            loader.parentNode.removeChild(loader);
+          }
+        }, 450);
+      }
+    }
+
+    // 1. Flutter first frame event
+    window.addEventListener('flutter-first-frame', removeLoadingScreen);
+
+    // 2. Watch for Flutter DOM view injection
+    var domObserver = new MutationObserver(function(mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        var added = mutations[i].addedNodes;
+        for (var j = 0; j < added.length; j++) {
+          var node = added[j];
+          if (node.nodeType === 1 && (node.tagName === 'FLUTTER-VIEW' || node.tagName === 'FLT-GLASS-PANE' || (node.classList && node.classList.contains('flutter-view')))) {
+            setTimeout(removeLoadingScreen, 200);
+            domObserver.disconnect();
+            return;
+          }
+        }
+      }
+    });
+    if (document.body) {
+      domObserver.observe(document.body, { childList: true, subtree: true });
+    }
+
+    // 3. Safety fallback timer
+    window.addEventListener('load', function() {
+      setTimeout(function() {
+        if (document.querySelector('flutter-view, flt-glass-pane, [flt-renderer]')) {
+          removeLoadingScreen();
+        }
+      }, 2000);
+    });
+  </script>
+
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
