@@ -1665,6 +1665,59 @@ async function seedUsers() {
       }
     }
 
+    // Ensure real authentic administrative names for official accounts in Employes
+    if (pg) {
+      await db.query(`
+        UPDATE "Employes" 
+        SET "Nom" = 'Belaidi', "Prenom" = 'Karim', "NomAr" = 'بلعيدي', "PrenomAr" = 'كريم',
+            "Grade" = 'رئيس مصلحة', "FonctionExercee" = 'رئيس مصلحة المنافسة والتحقيقات الاقتصادية'
+        WHERE "NumeroMatricule" = 'MAT-CHEF-CONC' OR "Nom" = 'chef_concurrence'
+      `);
+      await db.query(`
+        UPDATE "Employes" 
+        SET "Nom" = 'Mansouri', "Prenom" = 'Abdelhakim', "NomAr" = 'منصوري', "PrenomAr" = 'عبد الحكيم',
+            "Grade" = 'رئيس مصلحة', "FonctionExercee" = 'رئيس مصلحة حماية المستهلك وقمع الغش'
+        WHERE "NumeroMatricule" = 'MAT-CHEF-CONS' OR "Nom" = 'chef_consommation'
+      `);
+      await db.query(`
+        UPDATE "Employes" 
+        SET "Nom" = 'Zerrouki', "Prenom" = 'Kamel', "NomAr" = 'زروقي', "PrenomAr" = 'كمال',
+            "Grade" = 'رئيس مصلحة', "FonctionExercee" = 'رئيس مصلحة الإدارة والوسائل'
+        WHERE "NumeroMatricule" = 'MAT-CHEF-ADMI' OR "Nom" = 'chef_administration'
+      `);
+      await db.query(`
+        UPDATE "Employes" 
+        SET "Nom" = 'Mebarki', "Prenom" = 'Sofiane', "NomAr" = 'مباركي', "PrenomAr" = 'سفيان',
+            "Grade" = 'رئيس مكتب', "FonctionExercee" = 'رئيس مكتب المستخدمين'
+        WHERE "NumeroMatricule" = 'MAT-BUR-001' OR "Nom" = 'bureau_user'
+      `);
+    } else {
+      await db.query(`
+        UPDATE Employes 
+        SET Nom = 'Belaidi', Prenom = 'Karim', NomAr = 'بلعيدي', PrenomAr = 'كريم',
+            Grade = 'رئيس مصلحة', FonctionExercee = 'رئيس مصلحة المنافسة والتحقيقات الاقتصادية'
+        WHERE NumeroMatricule = 'MAT-CHEF-CONC' OR Nom = 'chef_concurrence'
+      `);
+      await db.query(`
+        UPDATE Employes 
+        SET Nom = 'Mansouri', Prenom = 'Abdelhakim', NomAr = 'منصوري', PrenomAr = 'عبد الحكيم',
+            Grade = 'رئيس مصلحة', FonctionExercee = 'رئيس مصلحة حماية المستهلك وقمع الغش'
+        WHERE NumeroMatricule = 'MAT-CHEF-CONS' OR Nom = 'chef_consommation'
+      `);
+      await db.query(`
+        UPDATE Employes 
+        SET Nom = 'Zerrouki', Prenom = 'Kamel', NomAr = 'زروقي', PrenomAr = 'كمال',
+            Grade = 'رئيس مصلحة', FonctionExercee = 'رئيس مصلحة الإدارة والوسائل'
+        WHERE NumeroMatricule = 'MAT-CHEF-ADMI' OR Nom = 'chef_administration'
+      `);
+      await db.query(`
+        UPDATE Employes 
+        SET Nom = 'Mebarki', Prenom = 'Sofiane', NomAr = 'مباركي', PrenomAr = 'سفيان',
+            Grade = 'رئيس مكتب', FonctionExercee = 'رئيس مكتب المستخدمين'
+        WHERE NumeroMatricule = 'MAT-BUR-001' OR Nom = 'bureau_user'
+      `);
+    }
+
     // Ensure tracker_admin (System Admin - Role 5) never has phantom employee records in Employes
     if (pg) {
       await db.query(`DELETE FROM "Employes" WHERE "Nom" = 'tracker_admin' OR "NomAr" = 'tracker_admin'`);
