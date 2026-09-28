@@ -345,8 +345,8 @@ router.get('/map-data', async (req, res) => {
 
     const attendance = await db.query(
       pg
-        ? `SELECT "EmployeeId","CheckInTime","CheckOutTime","IsCheckedOut","CheckInLatitude","CheckInLongitude","CheckInPhoto","Notes" FROM "TrackerAttendance" WHERE "Date" = $1`
-        : 'SELECT EmployeeId,CheckInTime,CheckOutTime,IsCheckedOut,CheckInLatitude,CheckInLongitude,CheckInPhoto,Notes FROM TrackerAttendance WHERE Date = ?',
+        ? `SELECT "EmployeeId","CheckInTime","CheckOutTime","IsCheckedOut","CheckInLatitude","CheckInLongitude","CheckInPhoto","Notes","CheckOutLatitude","CheckOutLongitude","CheckOutLocation","EarlyReason" FROM "TrackerAttendance" WHERE "Date" = $1`
+        : 'SELECT EmployeeId,CheckInTime,CheckOutTime,IsCheckedOut,CheckInLatitude,CheckInLongitude,CheckInPhoto,Notes,CheckOutLatitude,CheckOutLongitude,CheckOutLocation,EarlyReason FROM TrackerAttendance WHERE Date = ?',
       [today]
     );
 
@@ -384,9 +384,13 @@ router.get('/map-data', async (req, res) => {
         attendanceMap[aEmpId] = {
           CheckInTime: a.CheckInTime || a.checkintime,
           CheckOutTime: a.CheckOutTime || a.checkouttime,
-          IsCheckedOut: a.IsCheckedOut !== undefined ? a.IsCheckedOut : a.ischeckedout,
+          IsCheckedOut: a.IsCheckedOut !== undefined ? (a.IsCheckedOut === true || a.IsCheckedOut === 1) : (a.ischeckedout === true || a.ischeckedout === 1),
           CheckInLatitude: a.CheckInLatitude !== undefined ? a.CheckInLatitude : a.checkinlatitude,
           CheckInLongitude: a.CheckInLongitude !== undefined ? a.CheckInLongitude : a.checkinlongitude,
+          CheckOutLatitude: a.CheckOutLatitude !== undefined ? a.CheckOutLatitude : a.checkoutlatitude,
+          CheckOutLongitude: a.CheckOutLongitude !== undefined ? a.CheckOutLongitude : a.checkoutlongitude,
+          CheckOutLocation: a.CheckOutLocation || a.checkoutlocation,
+          EarlyReason: a.EarlyReason || a.earlyreason,
           CheckInPhoto: a.CheckInPhoto || a.checkinphoto,
           Notes: a.Notes || a.notes,
         };
@@ -453,9 +457,6 @@ router.get('/map-data', async (req, res) => {
       const isNightDuty = adminStatus === 'special_mission';
       const isBrigadeLeader = (emp.IsBrigadeLeader || emp.isbrigadeleader) === true || (emp.IsBrigadeLeader || emp.isbrigadeleader) === 1;
 
-      // Strict Privacy Rule: If the employee checked out and is NOT on night duty, do not stream live coordinates
-      const allowLiveTracking = att && (!isCheckedOut || isNightDuty);
-
       const nomAr = (emp.NomAr || emp.nomar || '').toString();
       const prenomAr = (emp.PrenomAr || emp.prenomar || '').toString();
       const nom = (emp.Nom || emp.nom || '').toString();
@@ -463,7 +464,6 @@ router.get('/map-data', async (req, res) => {
       const empName = nomAr ? `${nomAr} ${prenomAr}`.trim() : `${nom} ${prenom}`.trim();
 
       // Find active program specifically for this inspector:
-      // Search in Title AND Description (where leader and companion inspectors are registered)
       let activeProg = null;
       for (const p of (programs || [])) {
         const title = (p.Title || p.title || '').toString();
@@ -492,8 +492,17 @@ router.get('/map-data', async (req, res) => {
         targetType: activeProg.TargetType || activeProg.targettype,
       } : null;
 
-      const currentLat = allowLiveTracking ? (lastVisit ? lastVisit.latitude : (att ? att.CheckInLatitude : null)) : null;
-      const currentLng = allowLiveTracking ? (lastVisit ? lastVisit.longitude : (att ? att.CheckInLongitude : null)) : null;
+      // Location resolution:
+      // If checked out: use checkout coordinates if recorded, or last visit or checkin coordinates
+      let currentLat = null;
+      let currentLng = null;
+      if (isCheckedOut) {
+        currentLat = att ? (att.CheckOutLatitude || (lastVisit ? lastVisit.latitude : att.CheckInLatitude)) : null;
+        currentLng = att ? (att.CheckOutLongitude || (lastVisit ? lastVisit.longitude : att.CheckInLongitude)) : null;
+      } else if (att) {
+        currentLat = lastVisit ? lastVisit.latitude : att.CheckInLatitude;
+        currentLng = lastVisit ? lastVisit.longitude : att.CheckInLongitude;
+      }
 
       let locationType = 'unknown';
       let hqName = null;
@@ -529,7 +538,9 @@ router.get('/map-data', async (req, res) => {
 
       let trackingStatus = 'غير مسجل اليوم';
       if (isCheckedOut) {
-        trackingStatus = isNightDuty ? 'مهمة تفتيش ليلية نشطة' : 'منصرف - أنهى الدوام';
+        const outTime = att && att.CheckOutTime ? new Date(att.CheckOutTime).toLocaleTimeString('fr-DZ', { hour: '2-digit', minute: '2-digit' }) : '';
+        const reason = att && att.EarlyReason ? ` [${att.EarlyReason}]` : '';
+        trackingStatus = `منصرف: ${outTime}${reason}`;
       } else if (att) {
         if (locationType === 'at_hq') {
           trackingStatus = `حاضر بالمقر (${hqName || 'المقر الرئيسي'})`;
@@ -558,11 +569,15 @@ router.get('/map-data', async (req, res) => {
         activeProgram: activeProgramData,
         checkInTime: att ? att.CheckInTime : null,
         checkOutTime: att ? att.CheckOutTime : null,
+        checkOutLocation: att ? (att.CheckOutLocation || (locationType === 'at_hq' ? (hqName || 'المقر الرسمي') : 'موقع الانصراف الميداني')) : null,
+        earlyReason: att ? att.EarlyReason : null,
         lateMinutes: todayLateMinutes,
         latitude: currentLat != null ? parseFloat(currentLat) : null,
         longitude: currentLng != null ? parseFloat(currentLng) : null,
-        checkInLatitude: allowLiveTracking && att && att.CheckInLatitude != null ? parseFloat(att.CheckInLatitude) : null,
-        checkInLongitude: allowLiveTracking && att && att.CheckInLongitude != null ? parseFloat(att.CheckInLongitude) : null,
+        checkInLatitude: att && att.CheckInLatitude != null ? parseFloat(att.CheckInLatitude) : null,
+        checkInLongitude: att && att.CheckInLongitude != null ? parseFloat(att.CheckInLongitude) : null,
+        checkOutLatitude: att && att.CheckOutLatitude != null ? parseFloat(att.CheckOutLatitude) : null,
+        checkOutLongitude: att && att.CheckOutLongitude != null ? parseFloat(att.CheckOutLongitude) : null,
         checkInPhoto: att ? att.CheckInPhoto : null,
         notes: att ? att.Notes : null,
         visitsCount: empVisits.length,
@@ -854,6 +869,28 @@ router.post('/checkout', async (req, res) => {
       [resolvedCheckoutLocation, latitude || null, longitude || null, finalNotes, finalEarlyReason || null, employeeId, today]
     );
 
+    if (finalEarlyReason) {
+      try {
+        await db.query(
+          pg
+            ? `INSERT INTO "TrackerJustifications" 
+               ("EmployeeId", "Type", "Title", "StartDate", "EndDate", "DaysCount", "Notes", "Status")
+               VALUES ($1, 'early_departure', $2, $3, $3, 1, $4, 'pending')`
+            : `INSERT INTO TrackerJustifications 
+               (EmployeeId, Type, Title, StartDate, EndDate, DaysCount, Notes, Status)
+               VALUES (?, 'early_departure', ?, ?, ?, 1, ?, 'pending')`,
+          [
+            employeeId,
+            `خروج مبكر استعجالي: ${finalEarlyReason.substring(0, 80)}`,
+            today,
+            `انصراف قبل انتهاء الدوام القانوني (${resolvedCheckoutLocation}). الوضعية معلقة بانتظار إيداع المبرر الورقي أو الشهادة الطبية بمكتب المستخدمين خلال 48 ساعة أو موافقة المدير.`
+          ]
+        );
+      } catch (jErr) {
+        console.warn('Could not auto-insert pending justification:', jErr.message);
+      }
+    }
+
     const result = await db.query(
       pg
         ? `SELECT * FROM "TrackerAttendance" WHERE "EmployeeId" = $1 AND "Date" = $2 ORDER BY "Id" DESC LIMIT 1`
@@ -886,10 +923,35 @@ router.post('/cancel-checkout', async (req, res) => {
 
     await db.query(
       pg
-        ? `UPDATE "TrackerAttendance" SET "IsCheckedOut"=false, "CheckOutTime"=NULL WHERE "EmployeeId"=$1 AND "Date"=$2`
-        : `UPDATE TrackerAttendance SET IsCheckedOut=0, CheckOutTime=NULL WHERE EmployeeId=? AND Date=?`,
+        ? `UPDATE "TrackerAttendance" 
+           SET "IsCheckedOut" = false, 
+               "CheckOutTime" = NULL,
+               "CheckOutLocation" = NULL,
+               "CheckOutLatitude" = NULL,
+               "CheckOutLongitude" = NULL,
+               "EarlyReason" = NULL 
+           WHERE "EmployeeId" = $1 AND "Date" = $2`
+        : `UPDATE TrackerAttendance 
+           SET IsCheckedOut = 0, 
+               CheckOutTime = NULL,
+               CheckOutLocation = NULL,
+               CheckOutLatitude = NULL,
+               CheckOutLongitude = NULL,
+               EarlyReason = NULL 
+           WHERE EmployeeId = ? AND Date = ?`,
       [employeeId, today]
     );
+
+    try {
+      await db.query(
+        pg
+          ? `DELETE FROM "TrackerJustifications" 
+             WHERE "EmployeeId" = $1 AND "StartDate" = $2 AND "Type" = 'early_departure' AND "Status" = 'pending'`
+          : `DELETE FROM TrackerJustifications 
+             WHERE EmployeeId = ? AND StartDate = ? AND Type = 'early_departure' AND Status = 'pending'`,
+        [employeeId, today]
+      );
+    } catch (_) {}
 
     const result = await db.query(
       pg
