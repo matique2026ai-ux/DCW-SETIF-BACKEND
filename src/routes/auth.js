@@ -198,9 +198,8 @@ router.post('/login', async (req, res) => {
 
     // tracker_admin (roleId=5, username='tracker_admin') is sovereignly protected — never forced to change.
     const isTrackerAdmin = u.username.toLowerCase() === 'tracker_admin';
-    // All leadership roles (director=1, head=2, bureau=3, admin=5) must change default PIN on first login.
-    const isLeadershipRole = (u.roleId === 1 || u.roleId === 2 || u.roleId === 3 || u.roleId === 5);
-    const mustChange = !isTrackerAdmin && isLeadershipRole && (
+    // All users (Inspectors: 4, Directors: 1, Dept Heads: 2, Bureau Chief: 3, Admin: 5) must change credentials on first login or if default PIN (202600).
+    const mustChange = !isTrackerAdmin && (
       u.mustChangeCredentials === true ||
       u.masterPin === '202600' ||
       u.lastLogin == null
