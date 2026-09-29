@@ -1,7 +1,7 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const { getConnection, isPostgres } = require('../config/database');
-const { getTodayAlgeria } = require('../utils/dateUtils');
+const { getTodayAlgeria, getNowAlgeriaDate } = require('../utils/dateUtils');
 
 const router = express.Router();
 
@@ -800,18 +800,41 @@ router.post('/checkout', async (req, res) => {
     const elapsedMinutes = Math.round((now - checkInTime) / (1000 * 60));
 
     const finalEarlyReason = (earlyReason || shortShiftReason || '').trim();
+    const algeriaNow = getNowAlgeriaDate ? getNowAlgeriaDate() : new Date();
+    const algeriaHour = algeriaNow.getHours();
 
-    // 4.1 Anti Instant-Checkout (منع الخروج الفوري بعد دقيقة واحدة - اشتراط 30 دقيقة على الأقل أو تبرير استعجالي)
+    // 4.1 Anti Instant-Checkout (منع الخروج الفوري بعد دقائق معدودة - اشتراط 30 دقيقة على الأقل أو تبرير استعجالي)
     if (elapsedMinutes < 30 && !finalEarlyReason) {
       return res.status(400).json({
-        error: `تنبيه أمني: مضت ${elapsedMinutes} دقيقة فقط على تسجيل الحضور. يُمنع الانصراف الفوري قبل إتمام 30 دقيقة على الأقل من الدوام أو تقديم تبرير رسمي للخروج الاستعجالي.`,
+        error: `⛔ تنبيه أمني صارم: مضت ${elapsedMinutes} دقيقة فقط على تسجيل الحضور! يُمنع الانصراف الفوري بعد دقائق معدودة من الدخول. يتطلب الخروج الاضطراري تقديم استمارة تصريح بمغادرة استعجالية للمصادقة عليها طبقاً للأمر 06-03.`,
         isEarlyCheckout: true,
         elapsedMinutes: elapsedMinutes,
         requiresReason: true,
       });
     }
 
-    // 4.2 Field Activity Check (اشتراط معاينات ميدانية أو تبرير في حال الانصراف قبل 4 ساعات)
+    // 4.2 Statutory Working Hours Lock (الأمر 06-03: الدوام من 08:00 إلى 16:30 ونافذة الانصراف تبدأ من 16:00)
+    // أي خروج قبل الساعة 16:00 هو انصراف مبكر غير عادي ويستوجب حتماً استمارة تصريح بمغادرة استعجالية اضطرارية
+    if (algeriaHour < 16 && !finalEarlyReason) {
+      return res.status(400).json({
+        error: `⚠️ تنبيه إداري وقانوني: الدوام الرسمي للوظيفة العمومية سارٍ (08:00 - 16:30) ونافذة الانصراف القانوني تفتح ابتداءً من الساعة 16:00. لا يمكن الانصراف العادي حالياً، ويقتصر الخروج على استمارة تصريح بمغادرة استعجالية اضطرارية مع التعهد الإداري بتقديم المبرر لمكتب المستخدمين خلال 48 ساعة طبقاً للأمر 06-03.`,
+        isEarlyCheckout: true,
+        algeriaHour: algeriaHour,
+        elapsedMinutes: elapsedMinutes,
+        requiresReason: true,
+      });
+    }
+
+    // 4.3 Validation of Early Reason Length (اشتراط 10 أحرف على الأقل للجدية القانونية)
+    if (algeriaHour < 16 && finalEarlyReason && finalEarlyReason.length < 10) {
+      return res.status(400).json({
+        error: `تفاصيل المبرر الاستعجالي قصيرة جداً وغير كافية إدارياً. يرجى توضيح سبب الخروج الاستعجالي بالتفصيل (10 أحرف على الأقل).`,
+        isEarlyCheckout: true,
+        requiresReason: true,
+      });
+    }
+
+    // 4.4 Field Activity Check (اشتراط معاينات ميدانية أو تبرير في حال الانصراف قبل 4 ساعات)
     const todayVisits = await db.query(
       pg
         ? `SELECT COUNT(*) as count FROM "TrackerVisits" WHERE "EmployeeId" = $1 AND "Date" = $2`
