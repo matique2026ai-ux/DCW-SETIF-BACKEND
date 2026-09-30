@@ -1,5 +1,6 @@
 const express = require('express');
 const { getConnection, isPostgres } = require('../config/database');
+const { authMiddleware, roleGuard } = require('../middleware/auth');
 
 const router = express.Router();
 const pg_q = (pg, sql_pg, sql_mssql) => pg ? sql_pg : sql_mssql;
@@ -9,7 +10,7 @@ const pg_q = (pg, sql_pg, sql_mssql) => pg ? sql_pg : sql_mssql;
 // ==========================================
 
 // GET /api/market/prices
-router.get('/prices', async (req, res) => {
+router.get('/prices', authMiddleware, async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();
@@ -57,8 +58,12 @@ router.get('/prices', async (req, res) => {
 });
 
 // POST /api/market/prices (تسجيل مادة جديدة أو تحديث سعر)
-router.post('/prices', async (req, res) => {
+router.post('/prices', authMiddleware, async (req, res) => {
   try {
+    const callerRole = req.user?.role;
+    if (callerRole !== 'head_of_department' && callerRole !== 'director' && callerRole !== 'admin') {
+      return res.status(403).json({ error: 'غير مصرح: تسجيل أسعار المواد محصور برؤساء المصالح والمدير الولائي' });
+    }
     const { commodityName, category, regulatedPrice, wholesalePrice, retailPrice, unit, marketLocation, supplyStatus, notes, recordedBy } = req.body;
     if (!commodityName) {
       return res.status(400).json({ error: 'اسم المادة الاستهلاكية مطلوب' });
@@ -100,8 +105,12 @@ router.post('/prices', async (req, res) => {
 });
 
 // PUT /api/market/prices/:id (تحديث رصد مادة وسعرها)
-router.put('/prices/:id', async (req, res) => {
+router.put('/prices/:id', authMiddleware, async (req, res) => {
   try {
+    const callerRole = req.user?.role;
+    if (callerRole !== 'head_of_department' && callerRole !== 'director' && callerRole !== 'admin') {
+      return res.status(403).json({ error: 'غير مصرح: تحيين أسعار المواد محصور برؤساء المصالح والمدير الولائي' });
+    }
     const { id } = req.params;
     const { regulatedPrice, wholesalePrice, retailPrice, supplyStatus, marketLocation, notes } = req.body;
 
@@ -151,8 +160,12 @@ router.put('/prices/:id', async (req, res) => {
 });
 
 // DELETE /api/market/prices/:id
-router.delete('/prices/:id', async (req, res) => {
+router.delete('/prices/:id', authMiddleware, async (req, res) => {
   try {
+    const callerRole = req.user?.role;
+    if (callerRole !== 'head_of_department' && callerRole !== 'director' && callerRole !== 'admin') {
+      return res.status(403).json({ error: 'غير مصرح: حذف المواد محصور برؤساء المصالح والمدير الولائي' });
+    }
     const { id } = req.params;
     const db = await getConnection();
     const pg = isPostgres();
@@ -172,7 +185,7 @@ router.delete('/prices/:id', async (req, res) => {
 // ==========================================
 
 // GET /api/market/alerts
-router.get('/alerts', async (req, res) => {
+router.get('/alerts', authMiddleware, async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();
@@ -227,8 +240,12 @@ router.get('/alerts', async (req, res) => {
 });
 
 // POST /api/market/alerts (إصدار إخطار تمويني استباقي وتوجيهه لفرق الرقابة)
-router.post('/alerts', async (req, res) => {
+router.post('/alerts', authMiddleware, async (req, res) => {
   try {
+    const callerRole = req.user?.role;
+    if (callerRole !== 'head_of_department' && callerRole !== 'director' && callerRole !== 'admin') {
+      return res.status(403).json({ error: 'غير مصرح: إطلاق إخطارات التموين محصور برؤساء المصالح والمدير الولائي' });
+    }
     const { title, description, commodityName, municipality, severity, dispatchedToService, createdBy } = req.body;
     if (!title) {
       return res.status(400).json({ error: 'عنوان الإخطار التمويني مطلوب' });
@@ -265,8 +282,12 @@ router.post('/alerts', async (req, res) => {
 });
 
 // PUT /api/market/alerts/:id/status (تحديث حالة الإخطار)
-router.put('/alerts/:id/status', async (req, res) => {
+router.put('/alerts/:id/status', authMiddleware, async (req, res) => {
   try {
+    const callerRole = req.user?.role;
+    if (callerRole !== 'head_of_department' && callerRole !== 'director' && callerRole !== 'admin') {
+      return res.status(403).json({ error: 'غير مصرح: معالجة الإخطارات محصورة برؤساء المصالح والمدير الولائي' });
+    }
     const { id } = req.params;
     const { status } = req.body; // 'open', 'dispatched', 'resolved'
 
@@ -293,7 +314,7 @@ router.put('/alerts/:id/status', async (req, res) => {
 // ==========================================
 
 // GET /api/market/bulletin
-router.get('/bulletin', async (req, res) => {
+router.get('/bulletin', authMiddleware, async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();

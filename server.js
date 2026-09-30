@@ -21,6 +21,7 @@ const meansRoutes = require('./src/routes/means');
 const verifyRoutes = require('./src/routes/verify');
 const marketRoutes = require('./src/routes/market');
 const contentieuxRoutes = require('./src/routes/contentieux');
+const { decryptVisitsList, decryptVisitRecord } = require('./src/utils/cryptoUtils');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -182,24 +183,31 @@ const handleMasterPinChange = async (req, res) => {
         authorized = true;
       }
     }
-    if (!authorized && currentPin && currentPin === existingPin) {
-      authorized = true;
+    if (!authorized && currentPin) {
+      if (existingPin.startsWith('$2a$') || existingPin.startsWith('$2b$')) {
+        try {
+          authorized = await bcrypt.compare(currentPin, existingPin);
+        } catch (_) {}
+      } else {
+        authorized = (currentPin === existingPin);
+      }
     }
 
     if (!authorized) {
       return res.status(403).json({ error: 'غير مصرح: يرجى إدخال كلمة المرور الحالية أو رمز الأمان الحالي بشكل صحيح لتأكيد هويتك' });
     }
 
+    const hashedPin = await bcrypt.hash(newPin, 10);
     await db.query(
       pg
         ? 'UPDATE "UtilisateursSysteme" SET "MasterPin" = $1 WHERE "Id" = $2'
         : 'UPDATE UtilisateursSysteme SET MasterPin = ? WHERE Id = ?',
-      [newPin, targetUser.Id || targetUser.id]
+      [hashedPin, targetUser.Id || targetUser.id]
     );
 
     res.json({
       success: true,
-      message: 'تم تحديث وحفظ رمز الأمان السري (PIN Code) الجديد بنجاح ✅',
+      message: 'تم تحديث وتشفير رمز الأمان السري (PIN Code) الجديد بنجاح ✅',
       masterPin: newPin,
     });
   } catch (err) {
@@ -218,9 +226,14 @@ const ROLE_MAP = {
   5: 'admin',
 };
 
-// Direct GET Users Handler (Avoids wildcard interceptors)
-app.get(['/api/auth/users', '/api/users'], async (req, res) => {
+// Direct GET Users Handler (Protected: Admin, Director, Bureau Chief)
+app.get(['/api/auth/users', '/api/users'], authMiddleware, async (req, res) => {
   try {
+    const callerRole = req.user?.role;
+    if (callerRole !== 'admin' && callerRole !== 'director' && callerRole !== 'bureau_chief') {
+      return res.status(403).json({ error: 'غير مصرح: استعراض قائمة حسابات المستخدمين محصور بالإدارة' });
+    }
+
     const db = await getConnection();
     const pg = isPostgres();
     const query = pg
@@ -236,6 +249,7 @@ app.get(['/api/auth/users', '/api/users'], async (req, res) => {
          ORDER BY u.Id ASC`;
 
     const users = await db.query(query);
+    const isAdmin = callerRole === 'admin';
     const result = users.map((u) => ({
       id: u.Id || u.id,
       username: u.NomUtilisateur || u.nomutilisateur,
@@ -247,7 +261,7 @@ app.get(['/api/auth/users', '/api/users'], async (req, res) => {
       lastLogin: u.DerniereConnexion || u.derniereconnexion,
       deviceId: u.DeviceId || u.deviceid || null,
       deviceName: u.DeviceName || u.devicename || null,
-      masterPin: u.MasterPin || u.masterpin || '202600',
+      masterPin: isAdmin ? (u.MasterPin || u.masterpin || '202600') : '••••••',
       mustChangeCredentials: (u.MustChangeCredentials !== undefined ? u.MustChangeCredentials : u.mustchangecredentials) === true || (u.MustChangeCredentials || u.mustchangecredentials) === 1,
       employeeId: u.EmployeeId || u.employeeid,
       empNom: u.EmpNom || u.empnom,
@@ -630,7 +644,7 @@ app.get('/api/dashboard/analytics', async (req, res) => {
          ORDER BY tv.CheckInTime DESC`;
 
     const visitsResult = await db.query(visitsQuery, visitParams);
-    const visits = visitsResult || [];
+    const visits = decryptVisitsList(visitsResult || []);
 
     const cumulativeQuery = pg
       ? `SELECT 
@@ -1080,17 +1094,24 @@ app.get(['/api/reports/inspection-summary', '/api/inspection-summary'], async (r
 });
 
 
-app.all(['/api/visits/:id/approve', '/api/visits/:id/vise'], async (req, res) => {
+app.all(['/api/visits/:id/approve', '/api/visits/:id/vise'], authMiddleware, async (req, res) => {
   try {
+    const callerRole = req.user?.role;
+    if (callerRole !== 'director' && callerRole !== 'head_of_department' && callerRole !== 'admin') {
+      return res.status(403).json({ error: 'غير مصرح: تأشير ومصادقة محاضر المعاينة محصورة برؤساء المصالح والمدير الولائي فقط' });
+    }
+
     const { approvedBy } = req.body;
     const db = await getConnection();
     const pg = isPostgres();
     const numId = parseInt(req.params.id, 10);
+    const approverName = approvedBy || (req.user?.fullName ? `${req.user.fullName} (${callerRole === 'director' ? 'المدير الولائي' : 'رئيس المصلحة'})` : 'رئيس المصلحة المختصة');
+
     await db.query(
       pg
         ? `UPDATE "TrackerVisits" SET "IsApproved"=true, "ApprovedBy"=$1, "ApprovedAt"=NOW() WHERE "Id"=$2`
         : `UPDATE TrackerVisits SET IsApproved=1, ApprovedBy=?, ApprovedAt=GETDATE() WHERE Id=?`,
-      [approvedBy || 'المدير الولائي للتجارة', numId]
+      [approverName, numId]
     );
     const result = await db.query(
       pg ? `SELECT * FROM "TrackerVisits" WHERE "Id" = $1` : 'SELECT * FROM TrackerVisits WHERE Id = ?',
@@ -1103,8 +1124,13 @@ app.all(['/api/visits/:id/approve', '/api/visits/:id/vise'], async (req, res) =>
   }
 });
 
-app.delete('/api/visits/:id', async (req, res) => {
+app.delete('/api/visits/:id', authMiddleware, async (req, res) => {
   try {
+    const callerRole = req.user?.role;
+    if (callerRole !== 'director' && callerRole !== 'admin') {
+      return res.status(403).json({ error: 'غير مصرح: حذف أو إلغاء محاضر المعاينة الرسمية محصور سيادياً بالسيد المدير الولائي أو مدير النظام' });
+    }
+
     const numId = parseInt(req.params.id, 10);
     const db = await getConnection();
     const pg = isPostgres();
@@ -1129,11 +1155,32 @@ app.use('/api/means', meansRoutes);
 app.use('/api/market', marketRoutes);
 app.use('/api/contentieux', contentieuxRoutes);
 
-// Full Database Purge & Clean Endpoint (Zero Out All Data Except tracker_admin)
+// Protected Database Purge Endpoint (Strictly Admin with Sovereign PIN Verification)
 const handlePurgeAllData = async (req, res) => {
   try {
+    const callerRole = req.user?.role;
+    if (callerRole !== 'admin' || req.user?.username?.toLowerCase() !== 'tracker_admin') {
+      return res.status(403).json({ error: 'عملية سيادية محظورة: تصفير قاعدة البيانات محصور بمدير النظام التقني الرئيسي فقط' });
+    }
+
+    const { adminPin, confirmationCode } = req.body;
+    if (confirmationCode !== 'PURGE_CONFIRMED_2026') {
+      return res.status(400).json({ error: 'كود التأكيد الأمني للتصفير غير صحيح (مطلوب PURGE_CONFIRMED_2026)' });
+    }
+
     const db = await getConnection();
     const pg = isPostgres();
+
+    // Verify Master PIN of tracker_admin
+    const adminRows = await db.query(
+      pg ? 'SELECT "MasterPin" FROM "UtilisateursSysteme" WHERE LOWER("NomUtilisateur") = \'tracker_admin\''
+         : 'SELECT MasterPin FROM UtilisateursSysteme WHERE LOWER(NomUtilisateur) = \'tracker_admin\''
+    );
+    const realPin = adminRows?.[0]?.MasterPin || adminRows?.[0]?.masterpin || '202600';
+    if (!adminPin || adminPin.toString().trim() !== realPin) {
+      return res.status(403).json({ error: 'رمز الأمان السري (PIN) الخاص بمدير النظام غير صحيح ❌' });
+    }
+
     if (pg) {
       // جداول فرعية وتشغيلية أولاً
       await db.query('TRUNCATE TABLE "TrackerJustifications" RESTART IDENTITY CASCADE');
@@ -1172,7 +1219,7 @@ const handlePurgeAllData = async (req, res) => {
     await seedUsers();
     res.json({
       success: true,
-      message: '✅ تم تصفير شامل وحقيقي لقاعدة البيانات: حُذفت كافة سجلات الموظفين والمستخدمين ما عدا حساب مدير النظام التقني المحمي (tracker_admin). النظام جاهز لبدء دورة العمل الحقيقية.',
+      message: '✅ تم تصفير شامل وحقيقي لقاعدة البيانات بواسطة مدير النظام المعتمد.',
       cleared: [
         'TrackerVisits', 'TrackerAttendance', 'TrackerAbsences',
         'TrackerDeductions', 'TrackerInquiries', 'TrackerJustifications',
@@ -1185,10 +1232,7 @@ const handlePurgeAllData = async (req, res) => {
     res.status(500).json({ error: 'خطأ أثناء تصفير قاعدة البيانات: ' + err.message });
   }
 };
-app.all('/api/admin/purge-all-data', handlePurgeAllData);
-app.all('/api/clean-test-data', handlePurgeAllData);
-app.all('/clean-test-data', handlePurgeAllData);
-app.all('/api/settings/clean-test-data', handlePurgeAllData);
+app.post('/api/admin/purge-all-data', authMiddleware, handlePurgeAllData);
 
 app.get('/api/health', (req, res) => {
   let dbHost = 'none';
@@ -1591,6 +1635,23 @@ async function ensureTables() {
       await db.query(`ALTER TABLE "TrackerVisits" ADD COLUMN IF NOT EXISTS "IsApproved" BOOLEAN DEFAULT false`);
       await db.query(`ALTER TABLE "TrackerVisits" ADD COLUMN IF NOT EXISTS "ApprovedBy" VARCHAR(200)`);
       await db.query(`ALTER TABLE "TrackerVisits" ADD COLUMN IF NOT EXISTS "ApprovedAt" TIMESTAMP`);
+      await db.query(`ALTER TABLE "TrackerVisits" ADD COLUMN IF NOT EXISTS "DigitalSignature" VARCHAR(200)`);
+      await db.query(`ALTER TABLE "TrackerVisits" ADD COLUMN IF NOT EXISTS "IsEncrypted" BOOLEAN DEFAULT true`);
+
+      // 🛡️ Ensure columns are TEXT to safely hold AES-256-GCM ciphertexts
+      await db.query(`ALTER TABLE "TrackerVisits" ALTER COLUMN "ShopName" TYPE TEXT`);
+      await db.query(`ALTER TABLE "TrackerVisits" ALTER COLUMN "LocationName" TYPE TEXT`);
+      await db.query(`ALTER TABLE "TrackerVisits" ALTER COLUMN "ViolationNotes" TYPE TEXT`);
+      await db.query(`ALTER TABLE "TrackerVisits" ALTER COLUMN "Notes" TYPE TEXT`);
+
+      await db.query(`ALTER TABLE "TrackerClosureOrders" ALTER COLUMN "OwnerName" TYPE TEXT`);
+      await db.query(`ALTER TABLE "TrackerClosureOrders" ALTER COLUMN "CommercialRegister" TYPE TEXT`);
+      await db.query(`ALTER TABLE "TrackerClosureOrders" ALTER COLUMN "Address" TYPE TEXT`);
+      await db.query(`ALTER TABLE "TrackerClosureOrders" ALTER COLUMN "InfractionType" TYPE TEXT`);
+
+      await db.query(`ALTER TABLE "TrackerCourtCases" ALTER COLUMN "DefendantName" TYPE TEXT`);
+      await db.query(`ALTER TABLE "TrackerCourtCases" ALTER COLUMN "CommercialRegister" TYPE TEXT`);
+      await db.query(`ALTER TABLE "TrackerCourtCases" ALTER COLUMN "InfractionDetails" TYPE TEXT`);
 
       await db.query(`ALTER TABLE "UtilisateursSysteme" ADD COLUMN IF NOT EXISTS "DeviceId" VARCHAR(150)`);
       await db.query(`ALTER TABLE "UtilisateursSysteme" ADD COLUMN IF NOT EXISTS "DeviceName" VARCHAR(100)`);

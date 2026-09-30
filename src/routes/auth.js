@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { getConnection, isPostgres } = require('../config/database');
+const { authMiddleware, roleGuard } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -30,6 +31,36 @@ function normalizeUser(u) {
     createdAt: u.DateCreation || u.datecreation,
     lastLogin: u.DerniereConnexion || u.derniereconnexion,
   };
+}
+
+async function verifyPin(rawPin, storedPin) {
+  if (!rawPin || !storedPin) return false;
+  const raw = rawPin.toString().trim();
+  const stored = storedPin.toString().trim();
+  if (stored.startsWith('$2a$') || stored.startsWith('$2b$')) {
+    try {
+      return await bcrypt.compare(raw, stored);
+    } catch {
+      return false;
+    }
+  }
+  return raw === stored;
+}
+
+async function getSystemInitialPin(db, pg) {
+  try {
+    const query = pg
+      ? 'SELECT "Value" FROM "TrackerSettings" WHERE "Key" = \'initial_master_pin\''
+      : 'SELECT [Value] FROM TrackerSettings WHERE [Key] = \'initial_master_pin\'';
+    const rows = await db.query(query);
+    if (rows && rows.length > 0) {
+      const val = rows[0].Value || rows[0].value;
+      if (val && val.trim().length >= 4) return val.trim();
+    }
+  } catch (e) {
+    // If table doesn't exist yet, it will fallback safely
+  }
+  return '202600';
 }
 
 async function updateUserDevice(db, pg, deviceId, deviceName, userId) {
@@ -112,18 +143,29 @@ router.post('/login', async (req, res) => {
 
       // If logging in from Web Browser (Office PC / Laptop):
       if (isWebClient) {
-        const requiredPin = u.masterPin || '202600';
         if (!masterPin) {
           return res.status(403).json({
             error: `تنبيه أمني: يتطلب تسجيل دخول ${roleLabel} من المتصفح إدخال رمز الأمان السري (PIN Code) لتأكيد الهوية.`,
             requiresMasterPin: true,
           });
         }
-        if (masterPin !== requiredPin) {
+        const pinValid = await verifyPin(masterPin, u.masterPin);
+        if (!pinValid) {
           return res.status(403).json({
             error: 'رمز الأمان السري (PIN Code) غير صحيح ❌ يرجى التأكد وإعادة المحاولة.',
             requiresMasterPin: true,
           });
+        }
+        // Auto-upgrade legacy plaintext PIN to bcrypt hash on successful verification
+        if (!u.masterPin.startsWith('$2a$') && !u.masterPin.startsWith('$2b$')) {
+          try {
+            const hashedPin = await bcrypt.hash(masterPin, 10);
+            await db.query(
+              pg ? 'UPDATE "UtilisateursSysteme" SET "MasterPin" = $1 WHERE "Id" = $2' : 'UPDATE UtilisateursSysteme SET MasterPin = ? WHERE Id = ?',
+              [hashedPin, u.id]
+            );
+            u.masterPin = hashedPin;
+          } catch (_) {}
         }
       } else if (incomingDeviceId) {
         // Logging in from Mobile App: Enforce Mobile Device Locking
@@ -131,8 +173,8 @@ router.post('/login', async (req, res) => {
           await updateUserDevice(db, pg, incomingDeviceId, incomingDeviceName || `هاتف ${roleLabel} المعتمد`, u.id);
           u.deviceId = incomingDeviceId;
         } else if (u.deviceId !== incomingDeviceId) {
-          const requiredPin = u.masterPin || '202600';
-          if (masterPin === requiredPin || adminOverride === 'admin123' || adminOverride === 'DCW-OVERRIDE') {
+          const pinValid = masterPin ? await verifyPin(masterPin, u.masterPin) : false;
+          if (pinValid || adminOverride === 'admin123' || adminOverride === 'DCW-OVERRIDE') {
             await updateUserDevice(db, pg, incomingDeviceId, incomingDeviceName || `هاتف ${roleLabel} المعتمد (محدث)`, u.id);
             u.deviceId = incomingDeviceId;
           } else {
@@ -167,7 +209,8 @@ router.post('/login', async (req, res) => {
           u.deviceId = effectiveDeviceId;
         } else if (u.deviceId !== effectiveDeviceId) {
           // Check for admin emergency override code or master PIN
-          if (adminOverride === 'admin123' || adminOverride === 'DCW-OVERRIDE' || (masterPin && masterPin === (u.masterPin || '202600'))) {
+          const pinValid = masterPin ? await verifyPin(masterPin, u.masterPin) : false;
+          if (adminOverride === 'admin123' || adminOverride === 'DCW-OVERRIDE' || pinValid) {
             const deviceLabel = incomingDeviceName || 'هاتف معتمد (محدث بترخيص)';
             await updateUserDevice(db, pg, effectiveDeviceId, deviceLabel, u.id);
             u.deviceId = effectiveDeviceId;
@@ -198,10 +241,17 @@ router.post('/login', async (req, res) => {
 
     // tracker_admin (roleId=5, username='tracker_admin') is sovereignly protected — never forced to change.
     const isTrackerAdmin = u.username.toLowerCase() === 'tracker_admin';
-    // All users (Inspectors: 4, Directors: 1, Dept Heads: 2, Bureau Chief: 3, Admin: 5) must change credentials on first login or if default PIN (202600).
+    const systemInitialPin = await getSystemInitialPin(db, pg);
+    let isInitialPin = (u.masterPin === systemInitialPin || u.masterPin === '202600');
+    if (!isInitialPin && (u.masterPin.startsWith('$2a$') || u.masterPin.startsWith('$2b$'))) {
+      try {
+        isInitialPin = (await bcrypt.compare(systemInitialPin, u.masterPin)) || (await bcrypt.compare('202600', u.masterPin));
+      } catch (_) {}
+    }
+    // All users (Inspectors: 4, Directors: 1, Dept Heads: 2, Bureau Chief: 3, Admin: 5) must change credentials on first login or if default initial PIN.
     const mustChange = !isTrackerAdmin && (
       u.mustChangeCredentials === true ||
-      u.masterPin === '202600' ||
+      isInitialPin ||
       u.lastLogin == null
     );
 
@@ -226,7 +276,7 @@ router.post('/login', async (req, res) => {
 });
 
 // Admin endpoint to unbind/reset inspector device
-router.post('/users/:id/reset-device', async (req, res) => {
+router.post('/users/:id/reset-device', authMiddleware, roleGuard('admin'), async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();
@@ -413,7 +463,7 @@ router.post(['/change-master-pin', '/update-master-pin'], async (req, res) => {
         authorized = true;
       }
     }
-    if (!authorized && currentPin && currentPin === (targetUser.masterPin || '202600')) {
+    if (!authorized && currentPin && (await verifyPin(currentPin, targetUser.masterPin))) {
       authorized = true;
     }
 
@@ -421,12 +471,13 @@ router.post(['/change-master-pin', '/update-master-pin'], async (req, res) => {
       return res.status(403).json({ error: 'غير مصرح: يرجى كتابة كلمة المرور الحالية أو رمز الأمان الحالي لتأكيد هويتك' });
     }
 
-    // Update MasterPin for this specific user
+    // Hash the new PIN with bcrypt
+    const hashedPin = await bcrypt.hash(newPin, 10);
     await db.query(
       pg
         ? 'UPDATE "UtilisateursSysteme" SET "MasterPin" = $1 WHERE "Id" = $2'
         : 'UPDATE UtilisateursSysteme SET MasterPin = ? WHERE Id = ?',
-      [newPin, targetUser.id]
+      [hashedPin, targetUser.id]
     );
 
     res.json({
@@ -440,34 +491,101 @@ router.post(['/change-master-pin', '/update-master-pin'], async (req, res) => {
   }
 });
 
-// Admin: Reset a specific user's PIN code
-router.post('/users/:id/reset-pin', async (req, res) => {
+// Admin: Get system-wide initial master PIN (الاطلاع على رمز أول دخول المعتمد للنظام)
+router.get('/system-pin', authMiddleware, roleGuard('admin'), async (req, res) => {
   try {
-    const userId = parseInt(req.params.id, 10);
-    if (userId === 1) {
-      return res.status(403).json({ error: 'حساب مدير النظام التقني (tracker_admin) محمي سيادياً وممنوع إعادة ضبط رمزه من هنا' });
+    const db = await getConnection();
+    const pg = isPostgres();
+    const currentInitialPin = await getSystemInitialPin(db, pg);
+    res.json({ initialMasterPin: currentInitialPin });
+  } catch (err) {
+    res.status(500).json({ error: 'خطأ في جلب رمز أول دخول للنظام' });
+  }
+});
+
+// Admin: Set system-wide initial master PIN (تحديد وتغيير رمز أول دخول للنظام لكافة المستخدمين)
+router.post('/system-pin', authMiddleware, roleGuard('admin'), async (req, res) => {
+  try {
+    const { initialMasterPin, newPin } = req.body;
+    const pinToSet = (initialMasterPin || newPin || '').toString().trim();
+    if (!pinToSet || pinToSet.length < 4) {
+      return res.status(400).json({ error: 'يجب ألا يقل رمز أول دخول للنظام عن 4 أرقام أو أحرف' });
     }
-    const { newPin } = req.body;
-    const pinToSet = (newPin && newPin.toString().trim().length >= 4) ? newPin.toString().trim() : '202600';
 
     const db = await getConnection();
     const pg = isPostgres();
 
+    if (pg) {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS "TrackerSettings" (
+          "Key" VARCHAR(100) PRIMARY KEY,
+          "Value" TEXT NOT NULL,
+          "Description" TEXT,
+          "UpdatedAt" TIMESTAMP DEFAULT NOW()
+        );
+      `);
+      await db.query(
+        `INSERT INTO "TrackerSettings" ("Key", "Value", "Description", "UpdatedAt")
+         VALUES ('initial_master_pin', $1, 'رمز أول دخول للنظام المحدد من قبل مدير النظام', NOW())
+         ON CONFLICT ("Key") DO UPDATE
+         SET "Value" = EXCLUDED."Value", "UpdatedAt" = NOW()`,
+        [pinToSet]
+      );
+    } else {
+      await db.query(
+        `IF EXISTS (SELECT 1 FROM TrackerSettings WHERE [Key] = 'initial_master_pin')
+           UPDATE TrackerSettings SET [Value] = ?, UpdatedAt = GETDATE() WHERE [Key] = 'initial_master_pin'
+         ELSE
+           INSERT INTO TrackerSettings ([Key], [Value], Description, UpdatedAt) VALUES ('initial_master_pin', ?, 'رمز أول دخول للنظام', GETDATE())`,
+        [pinToSet, pinToSet]
+      );
+    }
+
+    res.json({
+      success: true,
+      initialMasterPin: pinToSet,
+      message: `تم اعتماد رمز أول دخول للنظام بنجاح: ${pinToSet} ✅`,
+    });
+  } catch (err) {
+    console.error('Set system pin error:', err.message);
+    res.status(500).json({ error: 'خطأ في حفظ رمز أول دخول للنظام: ' + err.message });
+  }
+});
+
+// Admin: Set or Reset any user's PIN code (تصفير رمز الأمان للمستخدم مع فرض تعيين رمز جديد عند الدخول)
+router.post('/users/:id/reset-pin', authMiddleware, roleGuard('admin'), async (req, res) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    if (userId === 1) {
+      return res.status(403).json({ error: 'حساب مدير النظام التقني (tracker_admin) محمي سيادياً وممنوع تصفير رمزه من هنا' });
+    }
+    const { newPin, forceChange } = req.body;
+    const db = await getConnection();
+    const pg = isPostgres();
+
+    // If newPin is specified use it, otherwise use current system initial PIN configured by Admin
+    let pinToSet = (newPin && newPin.toString().trim().length >= 4)
+      ? newPin.toString().trim()
+      : await getSystemInitialPin(db, pg);
+
+    const hashedPin = await bcrypt.hash(pinToSet, 10);
+    const mustChange = forceChange === false ? false : true;
+
     await db.query(
       pg
-        ? 'UPDATE "UtilisateursSysteme" SET "MasterPin" = $1, "MustChangeCredentials" = true WHERE ("Id" = $2 OR "EmployeeId" = $2) AND LOWER("NomUtilisateur") != \'tracker_admin\''
-        : 'UPDATE UtilisateursSysteme SET MasterPin = ?, MustChangeCredentials = 1 WHERE (Id = ? OR EmployeeId = ?) AND LOWER(NomUtilisateur) != \'tracker_admin\'',
-      pg ? [pinToSet, userId] : [pinToSet, userId, userId]
+        ? 'UPDATE "UtilisateursSysteme" SET "MasterPin" = $1, "MustChangeCredentials" = $2 WHERE ("Id" = $3 OR "EmployeeId" = $3) AND LOWER("NomUtilisateur") != \'tracker_admin\''
+        : 'UPDATE UtilisateursSysteme SET MasterPin = ?, MustChangeCredentials = ? WHERE (Id = ? OR EmployeeId = ?) AND LOWER(NomUtilisateur) != \'tracker_admin\'',
+      pg ? [hashedPin, mustChange, userId] : [hashedPin, mustChange ? 1 : 0, userId, userId]
     );
 
     res.json({
       success: true,
-      message: `تم إعادة ضبط رمز الأمان (PIN) للمستخدم بنجاح إلى: ${pinToSet} ✅`,
+      message: `تم تصفير رمز الأمان للمستخدم بنجاح إلى: ${pinToSet} ✅ (سيُفرض عليه اختيار رمزه الخاص عند أول دخول)`,
       masterPin: pinToSet,
     });
   } catch (err) {
     console.error('Reset PIN error:', err.message);
-    res.status(500).json({ error: 'خطأ أثناء إعادة تعيين رمز الأمان' });
+    res.status(500).json({ error: 'خطأ أثناء تصفير رمز الأمان: ' + err.message });
   }
 });
 
@@ -502,6 +620,7 @@ router.post('/setup-credentials', async (req, res) => {
 
     const passHash = await bcrypt.hash(newPassword.trim(), 10);
     const cleanPin = newPin.toString().trim();
+    const pinHash = await bcrypt.hash(cleanPin, 10);
 
     const updateQuery = pg
       ? `UPDATE "UtilisateursSysteme"
@@ -511,7 +630,7 @@ router.post('/setup-credentials', async (req, res) => {
          SET MotDePasseHash = ?, MasterPin = ?, MustChangeCredentials = 0
          WHERE Id = ?`;
 
-    await db.query(updateQuery, [passHash, cleanPin, userId]);
+    await db.query(updateQuery, [passHash, pinHash, userId]);
 
     res.json({
       success: true,
@@ -525,8 +644,13 @@ router.post('/setup-credentials', async (req, res) => {
 });
 
 // Admin: Get all system users
-router.get('/users', async (req, res) => {
+router.get('/users', authMiddleware, async (req, res) => {
   try {
+    const callerRole = req.user?.role;
+    if (callerRole !== 'admin' && callerRole !== 'director' && callerRole !== 'bureau_chief') {
+      return res.status(403).json({ error: 'غير مصرح: استعراض قائمة حسابات المستخدمين محصور بالإدارة' });
+    }
+
     const db = await getConnection();
     const pg = isPostgres();
     const query = pg
@@ -542,6 +666,7 @@ router.get('/users', async (req, res) => {
          ORDER BY u.Id ASC`;
 
     const users = await db.query(query);
+    const isAdmin = req.user?.role === 'admin';
     const result = users.map((u) => ({
       id: u.Id || u.id,
       username: u.NomUtilisateur || u.nomutilisateur,
@@ -554,7 +679,7 @@ router.get('/users', async (req, res) => {
       employeeId: u.EmployeeId || u.employeeid,
       deviceId: u.DeviceId || u.deviceid || null,
       deviceName: u.DeviceName || u.devicename || null,
-      masterPin: u.MasterPin || u.masterpin || '202600',
+      masterPin: isAdmin ? (u.MasterPin || u.masterpin || '202600') : '••••••',
       empNom: u.EmpNom || u.empnom,
       empPrenom: u.EmpPrenom || u.empprenom,
       empService: u.EmpService || u.empservice,
@@ -569,7 +694,7 @@ router.get('/users', async (req, res) => {
 });
 
 // Admin: Create a new system user
-router.post('/users', async (req, res) => {
+router.post('/users', authMiddleware, roleGuard('admin'), async (req, res) => {
   try {
     const { username, password, fullName, role, employeeId, masterPin, service } = req.body;
     if (!username || !password || !fullName) {
@@ -601,7 +726,10 @@ router.post('/users', async (req, res) => {
     };
     const dbRole = typeof role === 'number' ? role : (REVERSE_ROLE_MAP[role] || 4);
     const hash = await bcrypt.hash(password.trim(), 10);
-    const effectivePin = (masterPin || '202600').toString().trim();
+    const effectivePin = (masterPin && masterPin.toString().trim().length >= 4)
+      ? masterPin.toString().trim()
+      : await getSystemInitialPin(db, pg);
+    const pinHash = await bcrypt.hash(effectivePin, 10);
 
     let finalEmpId = employeeId ? parseInt(employeeId) : null;
 
@@ -648,14 +776,19 @@ router.post('/users', async (req, res) => {
       (dbRole === 3 ? 'مكتب المستخدمين' : 'مصلحة حماية المستهلك وقمع الغش'))));
 
     const insertQuery = pg
-      ? `INSERT INTO "UtilisateursSysteme" ("NomUtilisateur", "MotDePasseHash", "NomComplet", "Role", "EstActif", "DateCreation", "EmployeeId", "MasterPin", "Service")
-         VALUES ($1, $2, $3, $4, true, NOW(), $5, $6, $7) RETURNING "Id"`
-      : `INSERT INTO UtilisateursSysteme (NomUtilisateur, MotDePasseHash, NomComplet, Role, EstActif, DateCreation, EmployeeId, MasterPin, Service)
-         VALUES (?, ?, ?, ?, 1, GETDATE(), ?, ?, ?)`;
+      ? `INSERT INTO "UtilisateursSysteme" ("NomUtilisateur", "MotDePasseHash", "NomComplet", "Role", "EstActif", "DateCreation", "EmployeeId", "MasterPin", "Service", "MustChangeCredentials")
+         VALUES ($1, $2, $3, $4, true, NOW(), $5, $6, $7, true) RETURNING "Id"`
+      : `INSERT INTO UtilisateursSysteme (NomUtilisateur, MotDePasseHash, NomComplet, Role, EstActif, DateCreation, EmployeeId, MasterPin, Service, MustChangeCredentials)
+         VALUES (?, ?, ?, ?, 1, GETDATE(), ?, ?, ?, 1)`;
 
-    await db.query(insertQuery, [cleanUsername, hash, fullName.trim(), dbRole, finalEmpId, effectivePin, assignedService]);
+    await db.query(insertQuery, [cleanUsername, hash, fullName.trim(), dbRole, finalEmpId, pinHash, assignedService]);
 
-    res.json({ success: true, message: 'تم إنشاء المستخدم وسجل الموظف بنجاح ✅', employeeId: finalEmpId });
+    res.json({
+      success: true,
+      message: 'تم إنشاء المستخدم وسجل الموظف بنجاح ✅',
+      employeeId: finalEmpId,
+      assignedPin: effectivePin,
+    });
   } catch (err) {
     console.error('Create user error:', err.message);
     res.status(500).json({ error: 'خطأ في إنشاء المستخدم' });
@@ -663,7 +796,7 @@ router.post('/users', async (req, res) => {
 });
 
 // Admin: Update user details / role / status
-router.put('/users/:id', async (req, res) => {
+router.put('/users/:id', authMiddleware, roleGuard('admin'), async (req, res) => {
   try {
     const userId = parseInt(req.params.id, 10);
     const { fullName, role, isActive, employeeId, masterPin, service, password } = req.body;
@@ -691,6 +824,11 @@ router.put('/users/:id', async (req, res) => {
       );
     }
 
+    let pinHash = null;
+    if (masterPin && masterPin.toString().trim().length >= 4) {
+      pinHash = await bcrypt.hash(masterPin.toString().trim(), 10);
+    }
+
     const updateQuery = pg
       ? `UPDATE "UtilisateursSysteme"
          SET "NomComplet" = COALESCE($1, "NomComplet"),
@@ -709,7 +847,7 @@ router.put('/users/:id', async (req, res) => {
              Service = COALESCE(?, Service)
          WHERE Id = ?`;
 
-    await db.query(updateQuery, [fullName || null, dbRole, activeVal, employeeId || null, masterPin || null, service || null, userId]);
+    await db.query(updateQuery, [fullName || null, dbRole, activeVal, employeeId || null, pinHash, service || null, userId]);
 
     res.json({ success: true, message: 'تم تحديث بيانات المستخدم بنجاح ✅' });
   } catch (err) {
@@ -719,7 +857,7 @@ router.put('/users/:id', async (req, res) => {
 });
 
 // Admin: Reset a specific user's password
-router.post('/users/:id/reset-password', async (req, res) => {
+router.post('/users/:id/reset-password', authMiddleware, roleGuard('admin'), async (req, res) => {
   try {
     const userId = parseInt(req.params.id, 10);
     if (userId === 1) {
@@ -760,7 +898,7 @@ router.post('/users/:id/reset-password', async (req, res) => {
 });
 
 // Admin: Bulk generate accounts for all 267 employees
-router.post('/generate-all-accounts', async (req, res) => {
+router.post('/generate-all-accounts', authMiddleware, roleGuard('admin'), async (req, res) => {
   try {
     const defaultPassword = (req.body.defaultPassword || 'Setif@2025').trim();
     const db = await getConnection();
@@ -830,7 +968,7 @@ router.post('/generate-all-accounts', async (req, res) => {
 });
 
 // Admin: Delete user account permanently
-router.delete('/users/:id', async (req, res) => {
+router.delete('/users/:id', authMiddleware, roleGuard('admin'), async (req, res) => {
   try {
     const userId = parseInt(req.params.id, 10);
     const db = await getConnection();

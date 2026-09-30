@@ -2,6 +2,7 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const { getConnection, isPostgres } = require('../config/database');
 const { getTodayAlgeria, getNowAlgeriaDate } = require('../utils/dateUtils');
+const { decryptVisitsList } = require('../utils/cryptoUtils');
 
 const router = express.Router();
 
@@ -350,12 +351,13 @@ router.get('/map-data', async (req, res) => {
       [today]
     );
 
-    const visits = await db.query(
+    const rawVisits = await db.query(
       pg
         ? `SELECT "Id","EmployeeId","CheckInTime","Latitude","Longitude","ShopName","ShopType","Photo","ViolationFound","Notes" FROM "TrackerVisits" WHERE "Date" = $1 ORDER BY "CheckInTime" ASC`
         : 'SELECT Id,EmployeeId,CheckInTime,Latitude,Longitude,ShopName,ShopType,Photo,ViolationFound,Notes FROM TrackerVisits WHERE Date = ? ORDER BY CheckInTime ASC',
       [today]
     );
+    const visits = decryptVisitsList(rawVisits || []);
 
     // Fetch active programs with Description to link each inspector to their actual mission
     const programs = await db.query(

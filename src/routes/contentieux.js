@@ -1,5 +1,14 @@
 const express = require('express');
 const { getConnection, isPostgres } = require('../config/database');
+const { authMiddleware, roleGuard } = require('../middleware/auth');
+const {
+  encryptText,
+  decryptVisitsList,
+  decryptClosureRecord,
+  decryptClosuresList,
+  decryptCourtRecord,
+  decryptCourtsList,
+} = require('../utils/cryptoUtils');
 
 const router = express.Router();
 const pg_q = (pg, sql_pg, sql_mssql) => pg ? sql_pg : sql_mssql;
@@ -9,7 +18,7 @@ const pg_q = (pg, sql_pg, sql_mssql) => pg ? sql_pg : sql_mssql;
 // ==========================================
 
 // GET /api/contentieux/pvs (استعراض المحاضر الميدانية للمخالفات)
-router.get('/pvs', async (req, res) => {
+router.get('/pvs', authMiddleware, async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();
@@ -46,7 +55,7 @@ router.get('/pvs', async (req, res) => {
     );
 
     const rows = await db.query(sql);
-    res.json(rows);
+    res.json(decryptVisitsList(rows));
   } catch (err) {
     console.error('Get contentieux PVs error:', err.message);
     res.status(500).json({ error: 'خطأ أثناء جلب محاضر المخالفات: ' + err.message });
@@ -58,7 +67,7 @@ router.get('/pvs', async (req, res) => {
 // ==========================================
 
 // GET /api/contentieux/closures
-router.get('/closures', async (req, res) => {
+router.get('/closures', authMiddleware, async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();
@@ -126,7 +135,7 @@ router.get('/closures', async (req, res) => {
       rows = await db.query(sql);
     }
 
-    res.json(rows);
+    res.json(decryptClosuresList(rows));
   } catch (err) {
     console.error('Get closure orders error:', err.message);
     res.status(500).json({ error: 'خطأ أثناء جلب قرارات الغلق الإداري: ' + err.message });
@@ -134,8 +143,13 @@ router.get('/closures', async (req, res) => {
 });
 
 // POST /api/contentieux/closures (إعداد مسودة قرار غلق إداري جديد)
-router.post('/closures', async (req, res) => {
+router.post('/closures', authMiddleware, async (req, res) => {
   try {
+    const callerRole = req.user?.role;
+    if (callerRole !== 'head_of_department' && callerRole !== 'director' && callerRole !== 'admin') {
+      return res.status(403).json({ error: 'غير مصرح: إعداد قرارات الغلق الإداري محصور برؤساء المصالح والمدير الولائي' });
+    }
+
     const {
       orderNumber,
       establishmentName,
@@ -160,6 +174,13 @@ router.post('/closures', async (req, res) => {
 
     const genOrderNum = orderNumber || `2026/غ.إ/${Math.floor(100 + Math.random() * 900)}`;
 
+    const encEstablishment = establishmentName ? encryptText(establishmentName.trim()) : '';
+    const encReg = commercialRegister ? encryptText(commercialRegister.trim()) : '';
+    const encOwner = ownerName ? encryptText(ownerName.trim()) : '';
+    const encAddr = address ? encryptText(address.trim()) : '';
+    const encInf = infractionType ? encryptText(infractionType.trim()) : '';
+    const encNotes = notes ? encryptText(notes.trim()) : '';
+
     const sql = pg_q(pg,
       `INSERT INTO "TrackerClosureOrders" ("OrderNumber", "EstablishmentName", "CommercialRegister", "OwnerName", "Address", "Municipality", "InfractionType", "LegalBasis", "DurationDays", "Status", "RelatedVisitId", "DraftedBy", "Notes")
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'submitted_to_director', $10, $11, $12)
@@ -171,30 +192,35 @@ router.post('/closures', async (req, res) => {
 
     const params = [
       genOrderNum,
-      establishmentName.trim(),
-      commercialRegister || '',
-      ownerName || '',
-      address || '',
+      encEstablishment,
+      encReg,
+      encOwner,
+      encAddr,
       municipality || 'سطيف',
-      infractionType.trim(),
+      encInf,
       legalBasis || 'القانون رقم 09-03 والقانون رقم 04-02',
       parseInt(durationDays) || 30,
       relatedVisitId ? parseInt(relatedVisitId) : null,
       draftedBy ? parseInt(draftedBy) : null,
-      notes || ''
+      encNotes
     ];
 
     const result = await db.query(sql, params);
-    res.json(result[0] || { success: true });
+    res.json(decryptClosureRecord(result[0]) || { success: true });
   } catch (err) {
     console.error('Create closure order error:', err.message);
     res.status(500).json({ error: 'خطأ في إعداد قرار الغلق الإداري: ' + err.message });
   }
 });
 
-// POST /api/contentieux/closures/:id/sign (توقيع واعتماد قرار الغلق من المدير الولائي)
-router.post('/closures/:id/sign', async (req, res) => {
+// POST /api/contentieux/closures/:id/sign (توقيع واعتماد قرار الغلق من المدير الولائي حصرياً)
+router.post('/closures/:id/sign', authMiddleware, async (req, res) => {
   try {
+    const callerRole = req.user?.role;
+    if (callerRole !== 'director' && callerRole !== 'admin') {
+      return res.status(403).json({ error: 'صلاحية سيادية محظورة: توقيع واعتماد قرارات الغلق الإداري محصورة قانوناً بالسيد المدير الولائي للتجارة فقط (الآمر بالصرف)' });
+    }
+
     const { id } = req.params;
     const db = await getConnection();
     const pg = isPostgres();
@@ -216,19 +242,26 @@ router.post('/closures/:id/sign', async (req, res) => {
     if (!pg) params.push(id);
 
     const result = await db.query(sql, params);
-    res.json(result[0] || { success: true, message: 'تم توقيع واعتماد قرار الغلق الإداري بنجاح' });
+    res.json(decryptClosureRecord(result[0]) || { success: true, message: 'تم توقيع واعتماد قرار الغلق الإداري بنجاح' });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في توقيع قرار الغلق: ' + err.message });
   }
 });
 
 // POST /api/contentieux/closures/:id/execute (تنفيذ وتشميع المحل مع الأمن/الدرك)
-router.post('/closures/:id/execute', async (req, res) => {
+router.post('/closures/:id/execute', authMiddleware, async (req, res) => {
   try {
+    const callerRole = req.user?.role;
+    if (callerRole !== 'head_of_department' && callerRole !== 'director' && callerRole !== 'admin') {
+      return res.status(403).json({ error: 'غير مصرح: تسجيل تنفيذ الغلق محصور برؤساء المصالح والمدير الولائي' });
+    }
+
     const { id } = req.params;
     const { executionNotes } = req.body;
     const db = await getConnection();
     const pg = isPostgres();
+
+    const encNotes = executionNotes ? encryptText(executionNotes) : null;
 
     const sql = pg_q(pg,
       `UPDATE "TrackerClosureOrders"
@@ -245,19 +278,24 @@ router.post('/closures/:id/execute', async (req, res) => {
        SELECT * FROM TrackerClosureOrders WHERE Id = ?;`
     );
 
-    const params = [executionNotes || null, id];
+    const params = [encNotes, id];
     if (!pg) params.push(id);
 
     const result = await db.query(sql, params);
-    res.json(result[0] || { success: true, message: 'تم تسجيل تنفيذ وتشميع المحل بنجاح' });
+    res.json(decryptClosureRecord(result[0]) || { success: true, message: 'تم تسجيل تنفيذ وتشميع المحل بنجاح' });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في تسجيل تنفيذ الغلق: ' + err.message });
   }
 });
 
 // POST /api/contentieux/closures/:id/reopen (إعادة فتح المحل بعد انقضاء العقوبة وتسوية الوضعية)
-router.post('/closures/:id/reopen', async (req, res) => {
+router.post('/closures/:id/reopen', authMiddleware, async (req, res) => {
   try {
+    const callerRole = req.user?.role;
+    if (callerRole !== 'director' && callerRole !== 'admin' && callerRole !== 'head_of_department') {
+      return res.status(403).json({ error: 'غير مصرح: رفع الغلق محصور بالمدير الولائي أو رئيس المصلحة المختصة' });
+    }
+
     const { id } = req.params;
     const db = await getConnection();
     const pg = isPostgres();
@@ -279,7 +317,7 @@ router.post('/closures/:id/reopen', async (req, res) => {
     if (!pg) params.push(id);
 
     const result = await db.query(sql, params);
-    res.json(result[0] || { success: true, message: 'تم رفع الغلق وإعادة فتح المحل رسمياً' });
+    res.json(decryptClosureRecord(result[0]) || { success: true, message: 'تم رفع الغلق وإعادة فتح المحل رسمياً' });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في إعادة فتح المحل: ' + err.message });
   }
@@ -290,7 +328,7 @@ router.post('/closures/:id/reopen', async (req, res) => {
 // ==========================================
 
 // GET /api/contentieux/courts
-router.get('/courts', async (req, res) => {
+router.get('/courts', authMiddleware, async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();
@@ -356,7 +394,7 @@ router.get('/courts', async (req, res) => {
       rows = await db.query(sql);
     }
 
-    res.json(rows);
+    res.json(decryptCourtsList(rows));
   } catch (err) {
     console.error('Get court cases error:', err.message);
     res.status(500).json({ error: 'خطأ أثناء جلب ملفات القضايا والمحاكم: ' + err.message });
@@ -364,8 +402,13 @@ router.get('/courts', async (req, res) => {
 });
 
 // POST /api/contentieux/courts (تسجيل إحالة قضائية جديدة)
-router.post('/courts', async (req, res) => {
+router.post('/courts', authMiddleware, async (req, res) => {
   try {
+    const callerRole = req.user?.role;
+    if (callerRole !== 'head_of_department' && callerRole !== 'director' && callerRole !== 'admin') {
+      return res.status(403).json({ error: 'غير مصرح: تسجيل الإحالات القضائية محصور برؤساء المصالح والمدير الولائي' });
+    }
+
     const {
       caseNumber,
       courtName,
@@ -388,6 +431,11 @@ router.post('/courts', async (req, res) => {
 
     const genCaseNum = caseNumber || `2026/م.ق/${Math.floor(100 + Math.random() * 900)}`;
 
+    const encDef = defendantName ? encryptText(defendantName.trim()) : '';
+    const encReg = commercialRegister ? encryptText(commercialRegister.trim()) : '';
+    const encDet = infractionDetails ? encryptText(infractionDetails.trim()) : '';
+    const encNotes = notes ? encryptText(notes.trim()) : '';
+
     const sql = pg_q(pg,
       `INSERT INTO "TrackerCourtCases" ("CaseNumber", "CourtName", "DefendantName", "CommercialRegister", "InfractionDetails", "PvDate", "SubmissionDate", "Verdict", "FineAmount", "Notes")
        VALUES ($1, $2, $3, $4, $5, COALESCE($6, CURRENT_DATE), COALESCE($7, CURRENT_DATE), $8, $9, $10)
@@ -400,18 +448,18 @@ router.post('/courts', async (req, res) => {
     const params = [
       genCaseNum,
       courtName || 'محكمة سطيف',
-      defendantName.trim(),
-      commercialRegister || '',
-      infractionDetails.trim(),
+      encDef,
+      encReg,
+      encDet,
       pvDate || null,
       submissionDate || null,
       verdict || 'قيد الدراسة لدى النيابة العامة',
       fineAmount ? parseFloat(fineAmount) : 0,
-      notes || ''
+      encNotes
     ];
 
     const result = await db.query(sql, params);
-    res.json(result[0] || { success: true });
+    res.json(decryptCourtRecord(result[0]) || { success: true });
   } catch (err) {
     console.error('Create court case error:', err.message);
     res.status(500).json({ error: 'خطأ في تسجيل الإحالة القضائية: ' + err.message });
@@ -419,13 +467,21 @@ router.post('/courts', async (req, res) => {
 });
 
 // PUT /api/contentieux/courts/:id (تحديث الحكم أو تسجيل المصالحة ودفع الغرامة)
-router.put('/courts/:id', async (req, res) => {
+router.put('/courts/:id', authMiddleware, async (req, res) => {
   try {
+    const callerRole = req.user?.role;
+    if (callerRole !== 'head_of_department' && callerRole !== 'director' && callerRole !== 'admin') {
+      return res.status(403).json({ error: 'غير مصرح: تحديث مآل القضايا والمصالحات محصور برؤساء المصالح والمدير الولائي' });
+    }
+
     const { id } = req.params;
     const { verdict, fineAmount, isSettled, settlementReceipt, notes } = req.body;
 
     const db = await getConnection();
     const pg = isPostgres();
+
+    const encReceipt = settlementReceipt !== undefined ? encryptText(settlementReceipt) : null;
+    const encNotes = notes !== undefined ? encryptText(notes) : null;
 
     const sql = pg_q(pg,
       `UPDATE "TrackerCourtCases"
@@ -450,14 +506,14 @@ router.put('/courts/:id', async (req, res) => {
       verdict || null,
       fineAmount !== undefined ? parseFloat(fineAmount) : null,
       isSettled !== undefined ? isSettled : null,
-      settlementReceipt || null,
-      notes || null,
+      encReceipt,
+      encNotes,
       id
     ];
     if (!pg) params.push(id);
 
     const result = await db.query(sql, params);
-    res.json(result[0] || { success: true });
+    res.json(decryptCourtRecord(result[0]) || { success: true });
   } catch (err) {
     console.error('Update court case error:', err.message);
     res.status(500).json({ error: 'خطأ في تحديث مآل القضية: ' + err.message });

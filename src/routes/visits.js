@@ -2,24 +2,27 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const { getConnection, isPostgres } = require('../config/database');
 const { getTodayAlgeria } = require('../utils/dateUtils');
+const { authMiddleware, roleGuard } = require('../middleware/auth');
+const {
+  encryptText,
+  decryptVisitRecord,
+  decryptVisitsList,
+  generatePvSeal,
+  verifyPvSeal,
+} = require('../utils/cryptoUtils');
 
 const router = express.Router();
 
 const pg_q = (pg, sql_pg, sql_mssql) => pg ? sql_pg : sql_mssql;
 
-router.get('/', async (req, res) => {
+router.get('/', authMiddleware, async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();
     const { date, employeeId, isApproved } = req.query;
 
     let query = pg_q(pg,
-      `SELECT tv."Id",tv."EmployeeId",tv."AssignmentId",tv."Date",tv."CheckInTime",tv."CheckOutTime",
-              tv."Latitude",tv."Longitude",tv."Accuracy",tv."LocationName",
-              tv."ShopName",tv."ShopType",tv."Photo",tv."Status",tv."Notes",
-              tv."ViolationFound",tv."ViolationType",tv."ViolationNotes",
-              tv."LegalAction",tv."SeizureValue",tv."IsApproved",tv."ApprovedBy",tv."ApprovedAt",
-              tv."CreatedAt",
+      `SELECT tv.*,
               COALESCE(e."NomAr", u."NomComplet", 'مفتش ميداني') as "NomAr",
               COALESCE(e."PrenomAr", '') as "PrenomAr",
               COALESCE(e."Nom", u."NomUtilisateur", 'Inspecteur') as "Nom",
@@ -66,14 +69,14 @@ router.get('/', async (req, res) => {
     query += pg ? ' ORDER BY tv."CheckInTime" DESC' : ' ORDER BY tv.CheckInTime DESC';
 
     const result = await db.query(query, params);
-    res.json(result);
+    res.json(decryptVisitsList(result));
   } catch (err) {
     console.error('Get visits error:', err.message);
     res.status(500).json({ error: 'خطأ في جلب الزيارات' });
   }
 });
 
-router.get('/today', async (req, res) => {
+router.get('/today', authMiddleware, async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();
@@ -81,12 +84,7 @@ router.get('/today', async (req, res) => {
     const { employeeId } = req.query;
 
     let query = pg_q(pg,
-      `SELECT tv."Id",tv."EmployeeId",tv."Date",tv."CheckInTime",tv."CheckOutTime",
-              tv."Latitude",tv."Longitude",tv."Accuracy",tv."LocationName",
-              tv."ShopName",tv."ShopType",tv."Photo",tv."Status",tv."Notes",
-              tv."ViolationFound",tv."ViolationType",tv."ViolationNotes",
-              tv."LegalAction",tv."SeizureValue",tv."IsApproved",tv."ApprovedBy",tv."ApprovedAt",
-              tv."CreatedAt",
+      `SELECT tv.*,
               COALESCE(e."NomAr", u."NomComplet", 'مفتش ميداني') as "NomAr",
               COALESCE(e."PrenomAr", '') as "PrenomAr",
               COALESCE(e."Nom", u."NomUtilisateur", 'Inspecteur') as "Nom",
@@ -113,7 +111,7 @@ router.get('/today', async (req, res) => {
       const pIdx = params.length + 1;
       query += pg
         ? ` AND (tv."EmployeeId" = $${pIdx} OR u."Id" = $${pIdx} OR u."EmployeeId" = $${pIdx})`
-        : ` AND (tv.EmployeeId = ? OR u.Id = ? OR u.EmployeeId = ?)`;
+        : ' AND (tv.EmployeeId = ? OR u.Id = ? OR u.EmployeeId = ?)';
       params.push(parseInt(employeeId));
       if (!pg) {
         params.push(parseInt(employeeId));
@@ -124,24 +122,52 @@ router.get('/today', async (req, res) => {
     query += pg ? ' ORDER BY tv."CheckInTime" DESC' : ' ORDER BY tv.CheckInTime DESC';
 
     const result = await db.query(query, params);
-    res.json(result);
+    res.json(decryptVisitsList(result));
   } catch (err) {
     console.error('Get today visits error:', err.message);
     res.status(500).json({ error: 'خطأ في جلب زيارات اليوم' });
   }
 });
 
-router.post('/', async (req, res) => {
+// GET /api/visits/:id (استعراض تفاصيل محضر معاينة فردي مع فك التشفير والختم الرقمي)
+router.get('/:id', authMiddleware, async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    let jwtEmployeeId = null;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      try {
-        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'drh-setif-secret-2024');
-        jwtEmployeeId = decoded.employeeId || decoded.id;
-      } catch (_) {}
+    const db = await getConnection();
+    const pg = isPostgres();
+    const query = pg
+      ? `SELECT tv.*,
+                COALESCE(e."NomAr", u."NomComplet", 'مفتش ميداني') as "NomAr",
+                COALESCE(e."PrenomAr", '') as "PrenomAr",
+                COALESCE(e."Nom", u."NomUtilisateur", 'Inspecteur') as "Nom",
+                COALESCE(e."Prenom", '') as "Prenom",
+                COALESCE(e."Service", u."Service", 'مصلحة حماية المستهلك وقمع الغش') as "Service"
+         FROM "TrackerVisits" tv
+         LEFT JOIN "Employes" e ON tv."EmployeeId" = e."Id"
+         LEFT JOIN "UtilisateursSysteme" u ON (tv."EmployeeId" = u."Id" OR tv."EmployeeId" = u."EmployeeId")
+         WHERE tv."Id" = $1`
+      : `SELECT tv.*,
+                COALESCE(e.NomAr, u.NomComplet, 'مفتش ميداني') as NomAr,
+                COALESCE(e.PrenomAr, '') as PrenomAr,
+                COALESCE(e.Nom, u.NomUtilisateur, 'Inspecteur') as Nom,
+                COALESCE(e.Prenom, '') as Prenom,
+                COALESCE(e.Service, u.Service, 'مصلحة حماية المستهلك وقمع الغش') as Service
+         FROM TrackerVisits tv
+         LEFT JOIN Employes e ON tv.EmployeeId = e.Id
+         LEFT JOIN UtilisateursSysteme u ON (tv.EmployeeId = u.Id OR tv.EmployeeId = u.EmployeeId)
+         WHERE tv.Id = ?`;
+    const result = await db.query(query, [req.params.id]);
+    if (!result || result.length === 0) {
+      return res.status(404).json({ error: 'محضر المعاينة غير موجود' });
     }
+    res.json(decryptVisitRecord(result[0]));
+  } catch (err) {
+    res.status(500).json({ error: 'خطأ في جلب تفاصيل المعاينة' });
+  }
+});
 
+router.post('/', authMiddleware, async (req, res) => {
+  try {
+    const caller = req.user;
     const {
       employeeId, EmployeeId,
       latitude, Latitude,
@@ -160,7 +186,11 @@ router.post('/', async (req, res) => {
       seizureValue, SeizureValue
     } = req.body;
 
-    const finalEmpId = employeeId || EmployeeId || jwtEmployeeId;
+    // 🛡️ Anti-Impersonation: Inspectors can only create records under their own verified employee identity
+    let finalEmpId = caller.employeeId || caller.id;
+    if (caller.role === 'admin' || caller.role === 'director' || caller.role === 'head_of_department') {
+      finalEmpId = employeeId || EmployeeId || caller.employeeId || caller.id;
+    }
     const finalLat = latitude !== undefined ? latitude : Latitude;
     const finalLng = longitude !== undefined ? longitude : Longitude;
 
@@ -192,23 +222,42 @@ router.post('/', async (req, res) => {
       }
     }
 
+    // 🔐 Compute HMAC Tamper-Proof Seal on authentic unencrypted data
+    const pvSeal = generatePvSeal({
+      employeeId: finalEmpId,
+      date: today,
+      shopName: finalShopName,
+      violationType: finalViolationType,
+      violationNotes: finalViolationNotes,
+      seizureValue: sValue,
+      legalAction: finalLegalAction,
+    });
+
+    // 🛡️ Military-grade AES-256-GCM encryption of sensitive data
+    const encShopName = encryptText(finalShopName);
+    const encLoc = encryptText(finalLoc);
+    const encNotes = encryptText(finalNotes);
+    const encViolationNotes = encryptText(finalViolationNotes);
+
     await db.query(
       pg
         ? `INSERT INTO "TrackerVisits" (
             "EmployeeId","AssignmentId","Date","Latitude","Longitude","Accuracy",
             "LocationName","ShopName","ShopType","Photo","Notes","Status",
-            "ViolationFound","ViolationType","ViolationNotes","LegalAction","SeizureValue","CheckInTime"
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'completed',$12,$13,$14,$15,$16,COALESCE($17::timestamp, NOW()))`
+            "ViolationFound","ViolationType","ViolationNotes","LegalAction","SeizureValue","CheckInTime",
+            "DigitalSignature","IsEncrypted"
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'completed',$12,$13,$14,$15,$16,COALESCE($17::timestamp, NOW()),$18,true)`
         : `INSERT INTO TrackerVisits (
             EmployeeId,AssignmentId,Date,Latitude,Longitude,Accuracy,
             LocationName,ShopName,ShopType,Photo,Notes,Status,
-            ViolationFound,ViolationType,ViolationNotes,LegalAction,SeizureValue,CheckInTime
-          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,'completed',?,?,?,?,?,ISNULL(?, GETDATE()))`,
+            ViolationFound,ViolationType,ViolationNotes,LegalAction,SeizureValue,CheckInTime,
+            DigitalSignature,IsEncrypted
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,'completed',?,?,?,?,?,ISNULL(?, GETDATE()),?,1)`,
       [
         finalEmpId, assignmentId || AssignmentId || null, today, finalLat, finalLng, accuracy || Accuracy || null,
-        finalLoc, finalShopName, finalShopType, finalPhoto, finalNotes,
-        finalViolationFound, finalViolationType, finalViolationNotes, finalLegalAction, sValue,
-        visitTimestamp
+        encLoc, encShopName, finalShopType, finalPhoto, encNotes,
+        finalViolationFound, finalViolationType, encViolationNotes, finalLegalAction, sValue,
+        visitTimestamp, pvSeal
       ]
     );
 
@@ -219,14 +268,14 @@ router.post('/', async (req, res) => {
       [finalEmpId, today]
     );
 
-    res.status(201).json(result[0]);
+    res.status(201).json(decryptVisitRecord(result[0]));
   } catch (err) {
     console.error('Create visit error:', err.message);
     res.status(500).json({ error: 'خطأ في تسجيل الزيارة: ' + err.message });
   }
 });
 
-router.post('/:id/checkout', async (req, res) => {
+router.post('/:id/checkout', authMiddleware, async (req, res) => {
   try {
     const {
       violationFound, ViolationFound, HasViolation,
@@ -241,17 +290,22 @@ router.post('/:id/checkout', async (req, res) => {
     const sValue = parseFloat(seizureValue || SeizureValue) || 0;
     const isViol = violationFound === true || violationFound === 'true' || ViolationFound === true || HasViolation === true;
 
+    const encViolationNotes = (violationNotes !== undefined || ViolationNotes !== undefined)
+      ? encryptText(violationNotes || ViolationNotes || null) : null;
+    const encNotes = (notes !== undefined || Notes !== undefined)
+      ? encryptText(notes || Notes || null) : null;
+
     await db.query(
       pg
         ? `UPDATE "TrackerVisits" SET "CheckOutTime"=NOW(),"Status"='completed',
-           "ViolationFound"=$1,"ViolationType"=$2,"ViolationNotes"=$3,
+           "ViolationFound"=$1,"ViolationType"=$2,"ViolationNotes"=COALESCE($3,"ViolationNotes"),
            "LegalAction"=$4,"SeizureValue"=$5,
            "Notes"=COALESCE($6,"Notes") WHERE "Id"=$7`
         : `UPDATE TrackerVisits SET CheckOutTime=GETDATE(),Status='completed',
-           ViolationFound=?,ViolationType=?,ViolationNotes=?,
+           ViolationFound=?,ViolationType=?,ViolationNotes=ISNULL(?,ViolationNotes),
            LegalAction=?,SeizureValue=?,
            Notes=ISNULL(?,Notes) WHERE Id=?`,
-      [isViol, violationType || ViolationType || null, violationNotes || ViolationNotes || null, legalAction || LegalAction || null, sValue, notes || Notes || null, req.params.id]
+      [isViol, violationType || ViolationType || null, encViolationNotes, legalAction || LegalAction || null, sValue, encNotes, req.params.id]
     );
 
     const result = await db.query(
@@ -260,22 +314,42 @@ router.post('/:id/checkout', async (req, res) => {
         : 'SELECT * FROM TrackerVisits WHERE Id = ?',
       [req.params.id]
     );
-    res.json(result[0]);
+    res.json(decryptVisitRecord(result[0]));
   } catch (err) {
     res.status(500).json({ error: 'خطأ في إنهاء الزيارة' });
   }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', authMiddleware, async (req, res) => {
   try {
+    const caller = req.user;
+    const db = await getConnection();
+    const pg = isPostgres();
+
+    // 🔒 Immutability check: If visit is already officially approved, inspectors cannot alter it
+    if (caller.role === 'inspector') {
+      const existing = await db.query(
+        pg ? 'SELECT "IsApproved", "EmployeeId" FROM "TrackerVisits" WHERE "Id" = $1' : 'SELECT IsApproved, EmployeeId FROM TrackerVisits WHERE Id = ?',
+        [req.params.id]
+      );
+      if (existing && existing.length > 0) {
+        const vRow = existing[0];
+        if (vRow.IsApproved || vRow.isapproved) {
+          return res.status(403).json({ error: 'عذراً: محضر المعاينة مؤشر ومصادق عليه رسمياً من الإدارة، وتعديله ممنوع قانوناً.' });
+        }
+      }
+    }
+
     const {
       shopName, shopType, locationName,
       violationFound, violationType, violationNotes,
       legalAction, seizureValue, isApproved
     } = req.body;
-    const db = await getConnection();
-    const pg = isPostgres();
     const sValue = parseFloat(seizureValue) || 0;
+
+    const encShopName = shopName !== undefined ? encryptText(shopName) : null;
+    const encLocationName = locationName !== undefined ? encryptText(locationName) : null;
+    const encViolationNotes = violationNotes !== undefined ? encryptText(violationNotes) : null;
 
     await db.query(
       pg
@@ -301,14 +375,14 @@ router.put('/:id', async (req, res) => {
            SeizureValue=ISNULL(?,SeizureValue),
            IsApproved=ISNULL(?,IsApproved)
            WHERE Id=?`,
-      [shopName || null, shopType || null, locationName || null, violationFound, violationType || null, violationNotes || null, legalAction || null, sValue, isApproved, req.params.id]
+      [encShopName, shopType || null, encLocationName, violationFound, violationType || null, encViolationNotes, legalAction || null, sValue, isApproved, req.params.id]
     );
 
     const result = await db.query(
       pg ? `SELECT * FROM "TrackerVisits" WHERE "Id" = $1` : 'SELECT * FROM TrackerVisits WHERE Id = ?',
       [req.params.id]
     );
-    res.json(result[0]);
+    res.json(decryptVisitRecord(result[0]));
   } catch (err) {
     res.status(500).json({ error: 'خطأ في تحديث بيانات المعاينة' });
   }
@@ -317,15 +391,21 @@ router.put('/:id', async (req, res) => {
 // Approve / Stamp a visit (رئيس المصلحة أو رئيس المفتشية أو المدير)
 const handleApprove = async (req, res) => {
   try {
+    const callerRole = req.user?.role;
+    if (callerRole !== 'director' && callerRole !== 'head_of_department' && callerRole !== 'admin') {
+      return res.status(403).json({ error: 'غير مصرح: تأشير ومصادقة محاضر المعاينة محصورة برؤساء المصالح والمدير الولائي فقط' });
+    }
+
     const { approvedBy } = req.body;
     const db = await getConnection();
     const pg = isPostgres();
+    const approverName = approvedBy || (req.user?.fullName ? `${req.user.fullName} (${callerRole === 'director' ? 'المدير الولائي' : 'رئيس المصلحة'})` : 'رئيس المصلحة المختصة');
 
     await db.query(
       pg
         ? `UPDATE "TrackerVisits" SET "IsApproved"=true, "ApprovedBy"=$1, "ApprovedAt"=NOW() WHERE "Id"=$2`
         : `UPDATE TrackerVisits SET IsApproved=1, ApprovedBy=?, ApprovedAt=GETDATE() WHERE Id=?`,
-      [approvedBy || 'رئيس المصلحة المختصة', req.params.id]
+      [approverName, req.params.id]
     );
 
     const result = await db.query(
@@ -337,7 +417,7 @@ const handleApprove = async (req, res) => {
     res.json({
       success: true,
       message: 'تم تأشير واعتماد المعاينة رسمياً بنجاح ✅',
-      visit: result[0],
+      visit: decryptVisitRecord(result[0]),
     });
   } catch (err) {
     console.error('Approve visit error:', err.message);
@@ -345,10 +425,10 @@ const handleApprove = async (req, res) => {
   }
 };
 
-router.post('/:id/approve', handleApprove);
-router.put('/:id/approve', handleApprove);
+router.post('/:id/approve', authMiddleware, handleApprove);
+router.put('/:id/approve', authMiddleware, handleApprove);
 
-router.get('/employee/:employeeId/summary', async (req, res) => {
+router.get('/employee/:employeeId/summary', authMiddleware, async (req, res) => {
   try {
     const db = await getConnection();
     const pg = isPostgres();
@@ -379,9 +459,14 @@ router.get('/employee/:employeeId/summary', async (req, res) => {
   }
 });
 
-// DELETE visit (حذف / إلغاء محضر معاينة)
-router.delete('/:id', async (req, res) => {
+// DELETE visit (حذف / إلغاء محضر معاينة - مقيد بالمدير ومدير النظام)
+router.delete('/:id', authMiddleware, async (req, res) => {
   try {
+    const callerRole = req.user?.role;
+    if (callerRole !== 'director' && callerRole !== 'admin') {
+      return res.status(403).json({ error: 'غير مصرح: حذف أو إلغاء محاضر المعاينة الرسمية محصور سيادياً بالسيد المدير الولائي أو مدير النظام' });
+    }
+
     const { id } = req.params;
     const db = await getConnection();
     const pg = isPostgres();
