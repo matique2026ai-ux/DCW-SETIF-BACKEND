@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { getConnection, isPostgres } = require('./src/config/database');
 const { getTodayAlgeria, getNowAlgeriaIso } = require('./src/utils/dateUtils');
+const { authMiddleware, roleGuard } = require('./src/middleware/auth');
 
 const authRoutes = require('./src/routes/auth');
 const employeeRoutes = require('./src/routes/employees');
