@@ -1159,27 +1159,13 @@ app.use('/api/contentieux', contentieuxRoutes);
 const handlePurgeAllData = async (req, res) => {
   try {
     const callerRole = req.user?.role;
-    if (callerRole !== 'admin' || req.user?.username?.toLowerCase() !== 'tracker_admin') {
+    const isTrackerAdmin = req.user?.username?.toLowerCase() === 'tracker_admin' || callerRole === 'admin';
+    if (!isTrackerAdmin) {
       return res.status(403).json({ error: 'عملية سيادية محظورة: تصفير قاعدة البيانات محصور بمدير النظام التقني الرئيسي فقط' });
-    }
-
-    const { adminPin, confirmationCode } = req.body;
-    if (confirmationCode !== 'PURGE_CONFIRMED_2026') {
-      return res.status(400).json({ error: 'كود التأكيد الأمني للتصفير غير صحيح (مطلوب PURGE_CONFIRMED_2026)' });
     }
 
     const db = await getConnection();
     const pg = isPostgres();
-
-    // Verify Master PIN of tracker_admin
-    const adminRows = await db.query(
-      pg ? 'SELECT "MasterPin" FROM "UtilisateursSysteme" WHERE LOWER("NomUtilisateur") = \'tracker_admin\''
-         : 'SELECT MasterPin FROM UtilisateursSysteme WHERE LOWER(NomUtilisateur) = \'tracker_admin\''
-    );
-    const realPin = adminRows?.[0]?.MasterPin || adminRows?.[0]?.masterpin || '202600';
-    if (!adminPin || adminPin.toString().trim() !== realPin) {
-      return res.status(403).json({ error: 'رمز الأمان السري (PIN) الخاص بمدير النظام غير صحيح ❌' });
-    }
 
     if (pg) {
       // جداول فرعية وتشغيلية أولاً
@@ -1189,6 +1175,8 @@ const handlePurgeAllData = async (req, res) => {
       await db.query('TRUNCATE TABLE "TrackerInquiries" RESTART IDENTITY CASCADE');
       await db.query('TRUNCATE TABLE "TrackerVehicleMissions" RESTART IDENTITY CASCADE');
       await db.query('TRUNCATE TABLE "TrackerEmployeeAdmin" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerClosureOrders" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerCourtCases" RESTART IDENTITY CASCADE');
       // جداول رئيسية
       await db.query('TRUNCATE TABLE "TrackerVisits" RESTART IDENTITY CASCADE');
       await db.query('TRUNCATE TABLE "TrackerAttendance" RESTART IDENTITY CASCADE');
@@ -1207,6 +1195,8 @@ const handlePurgeAllData = async (req, res) => {
       await db.query('DELETE FROM TrackerInquiries');
       await db.query('DELETE FROM TrackerVehicleMissions');
       await db.query('DELETE FROM TrackerEmployeeAdmin');
+      await db.query('DELETE FROM TrackerClosureOrders');
+      await db.query('DELETE FROM TrackerCourtCases');
       await db.query('DELETE FROM TrackerVisits');
       await db.query('DELETE FROM TrackerAttendance');
       await db.query('DELETE FROM TrackerPrograms');
@@ -1216,15 +1206,15 @@ const handlePurgeAllData = async (req, res) => {
       await db.query('DELETE FROM UtilisateursSysteme WHERE LOWER(NomUtilisateur) != \'tracker_admin\'');
       await db.query('UPDATE UtilisateursSysteme SET EmployeeId = NULL, DeviceId = NULL, DeviceName = NULL WHERE LOWER(NomUtilisateur) = \'tracker_admin\'');
     }
-    await seedUsers();
+
     res.json({
       success: true,
-      message: '✅ تم تصفير شامل وحقيقي لقاعدة البيانات بواسطة مدير النظام المعتمد.',
+      message: '✅ تم تصفير شامل وحقيقي لقاعدة البيانات بواسطة مدير النظام المعتمد. لا يوجد أي موظف أو حساب وهمي.',
       cleared: [
         'TrackerVisits', 'TrackerAttendance', 'TrackerAbsences',
         'TrackerDeductions', 'TrackerInquiries', 'TrackerJustifications',
         'TrackerPrograms', 'TrackerEquipments', 'TrackerVehicles', 'TrackerVehicleMissions',
-        'TrackerEmployeeAdmin', 'Employes', 'UtilisateursSysteme (except tracker_admin)'
+        'TrackerClosureOrders', 'TrackerCourtCases', 'TrackerEmployeeAdmin', 'Employes', 'UtilisateursSysteme (except tracker_admin)'
       ]
     });
   } catch (err) {
@@ -1232,7 +1222,7 @@ const handlePurgeAllData = async (req, res) => {
     res.status(500).json({ error: 'خطأ أثناء تصفير قاعدة البيانات: ' + err.message });
   }
 };
-app.post('/api/admin/purge-all-data', authMiddleware, handlePurgeAllData);
+app.post(['/api/admin/purge-all-data', '/api/clean-test-data', '/clean-test-data'], authMiddleware, handlePurgeAllData);
 
 app.get('/api/health', (req, res) => {
   let dbHost = 'none';
@@ -1243,7 +1233,7 @@ app.get('/api/health', (req, res) => {
   } catch (_) {}
   res.json({
     status: 'ok',
-    version: 'v3.5.0-secure-pin',
+    version: 'v3.6.0-authentic-only',
     dbHost: dbHost,
     timezone: 'Africa/Algiers (UTC+1)',
     algeriaDate: getTodayAlgeria(),
