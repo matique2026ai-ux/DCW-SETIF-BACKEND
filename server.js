@@ -19,6 +19,8 @@ const inquiryRoutes = require('./src/routes/inquiries');
 const settingRoutes = require('./src/routes/settings');
 const meansRoutes = require('./src/routes/means');
 const verifyRoutes = require('./src/routes/verify');
+const marketRoutes = require('./src/routes/market');
+const contentieuxRoutes = require('./src/routes/contentieux');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -1124,6 +1126,8 @@ app.use('/api/justifications', justificationRoutes);
 app.use('/api/inquiries', inquiryRoutes);
 app.use('/api/settings', settingRoutes);
 app.use('/api/means', meansRoutes);
+app.use('/api/market', marketRoutes);
+app.use('/api/contentieux', contentieuxRoutes);
 
 // Full Database Purge & Clean Endpoint (Zero Out All Data Except tracker_admin)
 const handlePurgeAllData = async (req, res) => {
@@ -1443,6 +1447,136 @@ async function ensureTables() {
       LastCheckedDate DATE,
       CreatedAt DATETIME DEFAULT GETDATE()
     )`,
+
+    // 14. TrackerMarketPrices (أسعار المواد وضبط السوق)
+    pg ? `CREATE TABLE IF NOT EXISTS "TrackerMarketPrices" (
+      "Id" SERIAL PRIMARY KEY,
+      "CommodityName" VARCHAR(200) NOT NULL,
+      "Category" VARCHAR(100) DEFAULT 'مواد استهلاكية عامة',
+      "RegulatedPrice" DECIMAL(10,2) DEFAULT 0,
+      "WholesalePrice" DECIMAL(10,2) DEFAULT 0,
+      "RetailPrice" DECIMAL(10,2) DEFAULT 0,
+      "Unit" VARCHAR(50) DEFAULT 'كلغ',
+      "MarketLocation" VARCHAR(200) DEFAULT 'ولاية سطيف',
+      "SupplyStatus" VARCHAR(50) DEFAULT 'sufficient',
+      "Notes" TEXT,
+      "RecordedBy" INT,
+      "RecordedDate" DATE DEFAULT CURRENT_DATE,
+      "CreatedAt" TIMESTAMP DEFAULT NOW()
+    )` : `CREATE TABLE IF NOT EXISTS TrackerMarketPrices (
+      Id INT IDENTITY(1,1) PRIMARY KEY,
+      CommodityName NVARCHAR(200) NOT NULL,
+      Category NVARCHAR(100) DEFAULT 'مواد استهلاكية عامة',
+      RegulatedPrice DECIMAL(10,2) DEFAULT 0,
+      WholesalePrice DECIMAL(10,2) DEFAULT 0,
+      RetailPrice DECIMAL(10,2) DEFAULT 0,
+      Unit NVARCHAR(50) DEFAULT 'كلغ',
+      MarketLocation NVARCHAR(200) DEFAULT 'ولاية سطيف',
+      SupplyStatus NVARCHAR(50) DEFAULT 'sufficient',
+      Notes NTEXT NULL,
+      RecordedBy INT NULL,
+      RecordedDate DATE DEFAULT GETDATE(),
+      CreatedAt DATETIME DEFAULT GETDATE()
+    )`,
+
+    // 15. TrackerSupplyAlerts (الإخطارات التموينية والإنذار المبكر)
+    pg ? `CREATE TABLE IF NOT EXISTS "TrackerSupplyAlerts" (
+      "Id" SERIAL PRIMARY KEY,
+      "Title" VARCHAR(300) NOT NULL,
+      "Description" TEXT,
+      "CommodityName" VARCHAR(200),
+      "Municipality" VARCHAR(150) DEFAULT 'سطيف',
+      "Severity" VARCHAR(50) DEFAULT 'medium',
+      "Status" VARCHAR(50) DEFAULT 'open',
+      "DispatchedToService" VARCHAR(200) DEFAULT 'مصلحة حماية المستهلك وقمع الغش',
+      "CreatedBy" INT,
+      "CreatedAt" TIMESTAMP DEFAULT NOW()
+    )` : `CREATE TABLE IF NOT EXISTS TrackerSupplyAlerts (
+      Id INT IDENTITY(1,1) PRIMARY KEY,
+      Title NVARCHAR(300) NOT NULL,
+      Description NTEXT NULL,
+      CommodityName NVARCHAR(200) NULL,
+      Municipality NVARCHAR(150) DEFAULT 'سطيف',
+      Severity NVARCHAR(50) DEFAULT 'medium',
+      Status NVARCHAR(50) DEFAULT 'open',
+      DispatchedToService NVARCHAR(200) DEFAULT 'مصلحة حماية المستهلك وقمع الغش',
+      CreatedBy INT NULL,
+      CreatedAt DATETIME DEFAULT GETDATE()
+    )`,
+
+    // 16. TrackerClosureOrders (قرارات الغلق الإداري)
+    pg ? `CREATE TABLE IF NOT EXISTS "TrackerClosureOrders" (
+      "Id" SERIAL PRIMARY KEY,
+      "OrderNumber" VARCHAR(100) NOT NULL,
+      "EstablishmentName" VARCHAR(250) NOT NULL,
+      "CommercialRegister" VARCHAR(100),
+      "OwnerName" VARCHAR(200),
+      "Address" VARCHAR(300),
+      "Municipality" VARCHAR(100) DEFAULT 'سطيف',
+      "InfractionType" VARCHAR(250) NOT NULL,
+      "LegalBasis" VARCHAR(300) DEFAULT 'القانون رقم 09-03 والقانون 04-02',
+      "DurationDays" INT DEFAULT 30,
+      "Status" VARCHAR(50) DEFAULT 'draft',
+      "RelatedVisitId" INT,
+      "DraftedBy" INT,
+      "DirectorSignatureDate" TIMESTAMP,
+      "ExecutionDate" TIMESTAMP,
+      "ReopenDate" TIMESTAMP,
+      "Notes" TEXT,
+      "CreatedAt" TIMESTAMP DEFAULT NOW()
+    )` : `CREATE TABLE IF NOT EXISTS TrackerClosureOrders (
+      Id INT IDENTITY(1,1) PRIMARY KEY,
+      OrderNumber NVARCHAR(100) NOT NULL,
+      EstablishmentName NVARCHAR(250) NOT NULL,
+      CommercialRegister NVARCHAR(100) NULL,
+      OwnerName NVARCHAR(200) NULL,
+      Address NVARCHAR(300) NULL,
+      Municipality NVARCHAR(100) DEFAULT 'سطيف',
+      InfractionType NVARCHAR(250) NOT NULL,
+      LegalBasis NVARCHAR(300) DEFAULT 'القانون رقم 09-03 والقانون 04-02',
+      DurationDays INT DEFAULT 30,
+      Status NVARCHAR(50) DEFAULT 'draft',
+      RelatedVisitId INT NULL,
+      DraftedBy INT NULL,
+      DirectorSignatureDate DATETIME NULL,
+      ExecutionDate DATETIME NULL,
+      ReopenDate DATETIME NULL,
+      Notes NTEXT NULL,
+      CreatedAt DATETIME DEFAULT GETDATE()
+    )`,
+
+    // 17. TrackerCourtCases (سجل المتابعة القضائية والمصالحة)
+    pg ? `CREATE TABLE IF NOT EXISTS "TrackerCourtCases" (
+      "Id" SERIAL PRIMARY KEY,
+      "CaseNumber" VARCHAR(100) NOT NULL,
+      "CourtName" VARCHAR(150) DEFAULT 'محكمة سطيف',
+      "DefendantName" VARCHAR(200) NOT NULL,
+      "CommercialRegister" VARCHAR(100),
+      "InfractionDetails" TEXT,
+      "PvDate" DATE DEFAULT CURRENT_DATE,
+      "SubmissionDate" DATE DEFAULT CURRENT_DATE,
+      "Verdict" VARCHAR(150) DEFAULT 'قيد الدراسة لدى النيابة العامة',
+      "FineAmount" DECIMAL(15,2) DEFAULT 0,
+      "IsSettled" BOOLEAN DEFAULT false,
+      "SettlementReceipt" VARCHAR(100),
+      "Notes" TEXT,
+      "CreatedAt" TIMESTAMP DEFAULT NOW()
+    )` : `CREATE TABLE IF NOT EXISTS TrackerCourtCases (
+      Id INT IDENTITY(1,1) PRIMARY KEY,
+      CaseNumber NVARCHAR(100) NOT NULL,
+      CourtName NVARCHAR(150) DEFAULT 'محكمة سطيف',
+      DefendantName NVARCHAR(200) NOT NULL,
+      CommercialRegister NVARCHAR(100) NULL,
+      InfractionDetails NTEXT NULL,
+      PvDate DATE DEFAULT GETDATE(),
+      SubmissionDate DATE DEFAULT GETDATE(),
+      Verdict NVARCHAR(150) DEFAULT 'قيد الدراسة لدى النيابة العامة',
+      FineAmount DECIMAL(15,2) DEFAULT 0,
+      IsSettled BIT DEFAULT 0,
+      SettlementReceipt NVARCHAR(100) NULL,
+      Notes NTEXT NULL,
+      CreatedAt DATETIME DEFAULT GETDATE()
+    )`,
   ];
 
   for (const sql of tables) {
@@ -1597,6 +1731,8 @@ async function seedUsers() {
       { username: 'directeur', password: 'directeur123', fullName: 'المدير الولائي للتجارة', role: 1, pin: '202600', service: 'المديرية الولائية' },
       { username: 'chef_concurrence', password: 'chef123', fullName: 'رئيس مصلحة المنافسة والتحقيقات', role: 2, pin: '202600', service: 'مصلحة المنافسة والتحقيقات الاقتصادية' },
       { username: 'chef_consommation', password: 'chef123', fullName: 'رئيس مصلحة حماية المستهلك وقمع الغش', role: 2, pin: '202600', service: 'مصلحة حماية المستهلك وقمع الغش' },
+      { username: 'chef_marche', password: 'chef123', fullName: 'رئيس مصلحة ملاحظة السوق والتموين', role: 2, pin: '202600', service: 'مصلحة ملاحظة السوق وضبط التموين' },
+      { username: 'chef_contentieux', password: 'chef123', fullName: 'رئيس مصلحة المنازعات والشؤون القانونية', role: 2, pin: '202600', service: 'مصلحة المنازعات والشؤون القانونية' },
       { username: 'chef_administration', password: 'chef123', fullName: 'رئيس مصلحة الإدارة والوسائل', role: 2, pin: '202600', service: 'مصلحة الإدارة والوسائل' },
       { username: 'bureau_user', password: 'bureau123', fullName: 'رئيس مكتب المستخدمين', role: 3, pin: '202600', service: 'مكتب المستخدمين' },
     ];
@@ -1691,6 +1827,18 @@ async function seedUsers() {
             "Grade" = 'رئيس مكتب', "FonctionExercee" = 'رئيس مكتب المستخدمين'
         WHERE "NumeroMatricule" = 'MAT-BUR-001' OR "Nom" = 'bureau_user'
       `);
+      await db.query(`
+        UPDATE "Employes" 
+        SET "Nom" = 'Hamdi', "Prenom" = 'Rafik', "NomAr" = 'حمدي', "PrenomAr" = 'رفيق',
+            "Grade" = 'رئيس مصلحة', "FonctionExercee" = 'رئيس مصلحة ملاحظة السوق وضبط التموين'
+        WHERE "NumeroMatricule" = 'MAT-CHEF-MARC' OR "Nom" = 'chef_marche'
+      `);
+      await db.query(`
+        UPDATE "Employes" 
+        SET "Nom" = 'Bouchareb', "Prenom" = 'Hicham', "NomAr" = 'بوشارب', "PrenomAr" = 'هشام',
+            "Grade" = 'رئيس مصلحة', "FonctionExercee" = 'رئيس مصلحة المنازعات والشؤون القانونية'
+        WHERE "NumeroMatricule" = 'MAT-CHEF-CONT' OR "Nom" = 'chef_contentieux'
+      `);
     } else {
       await db.query(`
         UPDATE Employes 
@@ -1703,6 +1851,18 @@ async function seedUsers() {
         SET Nom = 'Mansouri', Prenom = 'Abdelhakim', NomAr = 'منصوري', PrenomAr = 'عبد الحكيم',
             Grade = 'رئيس مصلحة', FonctionExercee = 'رئيس مصلحة حماية المستهلك وقمع الغش'
         WHERE NumeroMatricule = 'MAT-CHEF-CONS' OR Nom = 'chef_consommation'
+      `);
+      await db.query(`
+        UPDATE Employes 
+        SET Nom = 'Hamdi', Prenom = 'Rafik', NomAr = 'حمدي', PrenomAr = 'رفيق',
+            Grade = 'رئيس مصلحة', FonctionExercee = 'رئيس مصلحة ملاحظة السوق وضبط التموين'
+        WHERE NumeroMatricule = 'MAT-CHEF-MARC' OR Nom = 'chef_marche'
+      `);
+      await db.query(`
+        UPDATE Employes 
+        SET Nom = 'Bouchareb', Prenom = 'Hicham', NomAr = 'بوشارب', PrenomAr = 'هشام',
+            Grade = 'رئيس مصلحة', FonctionExercee = 'رئيس مصلحة المنازعات والشؤون القانونية'
+        WHERE NumeroMatricule = 'MAT-CHEF-CONT' OR Nom = 'chef_contentieux'
       `);
       await db.query(`
         UPDATE Employes 
