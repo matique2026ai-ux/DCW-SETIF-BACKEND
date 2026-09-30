@@ -141,6 +141,31 @@ router.post('/login', async (req, res) => {
         ? 'مدير النظام التقني'
         : (u.roleId === 1 ? 'المدير الولائي' : (u.roleId === 2 ? 'رئيس المصلحة' : 'رئيس مكتب المستخدمين'));
 
+      // 🛡️ STRICT CROSS-ACCOUNT DEVICE ISOLATION (UNIVERSAL):
+      // If this incomingDeviceId is ALREADY bound to another user account, block login unless authorized by PIN/Admin Override!
+      if (incomingDeviceId) {
+        const otherUsersRes = await db.query(
+          pg
+            ? `SELECT "Id", "NomUtilisateur", "NomComplet", "Role" FROM "UtilisateursSysteme" WHERE "DeviceId" = $1 AND "Id" != $2`
+            : `SELECT Id, NomUtilisateur, NomComplet, Role FROM UtilisateursSysteme WHERE DeviceId = ? AND Id != ?`,
+          [incomingDeviceId, u.id]
+        );
+        const otherUser = otherUsersRes && otherUsersRes.length > 0 ? otherUsersRes[0] : null;
+        if (otherUser) {
+          const pinValid = masterPin ? await verifyPin(masterPin, u.masterPin) : false;
+          if (!pinValid && adminOverride !== 'admin123' && adminOverride !== 'DCW-OVERRIDE') {
+            const boundName = otherUser.NomComplet || otherUser.NomUtilisateur || otherUser.nomcomplet || otherUser.nomutilisateur;
+            return res.status(403).json({
+              error: `⛔ حظر أمني صارم: هذا الجهاز مقترن رسمياً بحساب مستخدم آخر ("${boundName}"). يُمنع منعاً باتاً استخدام نفس الجهاز أو المتصفح لتسجيل الدخول بحسابات قيادية متعددة لحماية سرية البيانات ومنع انتحال الصفة الإدارية.`,
+              isDeviceMismatch: true,
+              boundDeviceId: incomingDeviceId,
+              boundUser: boundName,
+              requiresMasterPin: true,
+            });
+          }
+        }
+      }
+
       // If logging in from Web Browser (Office PC / Laptop):
       if (isWebClient) {
         if (!masterPin) {
@@ -196,6 +221,30 @@ router.post('/login', async (req, res) => {
           error: '🚫 الولوج عبر المتصفح غير مصرّح به للمفتشين الميدانيين: حساب المفتش مقيّد حصرياً بتطبيق الهاتف المحمول المصطب (DCW-SETIF-TRACKER). يمنع منعاً باتاً فتح الحساب من متصفح الهاتف أو الكمبيوتر.',
           code: 'INSPECTOR_WEB_FORBIDDEN',
         });
+      }
+
+      // 🛡️ STRICT CROSS-ACCOUNT DEVICE ISOLATION FOR INSPECTORS:
+      if (incomingDeviceId) {
+        const otherUsersRes = await db.query(
+          pg
+            ? `SELECT "Id", "NomUtilisateur", "NomComplet" FROM "UtilisateursSysteme" WHERE "DeviceId" = $1 AND "Id" != $2`
+            : `SELECT Id, NomUtilisateur, NomComplet FROM UtilisateursSysteme WHERE DeviceId = ? AND Id != ?`,
+          [incomingDeviceId, u.id]
+        );
+        const otherUser = otherUsersRes && otherUsersRes.length > 0 ? otherUsersRes[0] : null;
+        if (otherUser) {
+          const pinValid = masterPin ? await verifyPin(masterPin, u.masterPin) : false;
+          if (!pinValid && adminOverride !== 'admin123' && adminOverride !== 'DCW-OVERRIDE') {
+            const boundName = otherUser.NomComplet || otherUser.NomUtilisateur || otherUser.nomcomplet || otherUser.nomutilisateur;
+            return res.status(403).json({
+              error: `⛔ حظر أمني صارم: هذا الهاتف مقترن بدخول حساب آخر ("${boundName}"). يمنع استخدام هاتف مسجل لموظف آخر لتسجيل الدخول كـ مفتش ميداني لمنع التلاعب والتزوير.`,
+              isDeviceMismatch: true,
+              boundDeviceId: incomingDeviceId,
+              boundUser: boundName,
+              requiresMasterPin: true,
+            });
+          }
+        }
       }
 
       // Mobile Device Enrollment / Enforcement (Android APK):

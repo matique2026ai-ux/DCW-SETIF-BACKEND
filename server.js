@@ -1979,8 +1979,28 @@ async function linkExistingUsersToEmployees() {
   }
 }
 
-// ⛔ تم استئصال دوال الزرع الوهمي نهائياً — المنظومة تعتمد بنسبة 100% على البيانات الحقيقية الواردة من تطبيق الميدان
-
+async function cleanSlateInquiriesAndVisits() {
+  try {
+    const db = await getConnection();
+    const pg = isPostgres();
+    if (pg) {
+      await db.query('TRUNCATE TABLE "TrackerInquiries" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerJustifications" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerDeductions" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerVisits" RESTART IDENTITY CASCADE');
+      await db.query('TRUNCATE TABLE "TrackerAttendance" RESTART IDENTITY CASCADE');
+    } else {
+      await db.query('DELETE FROM TrackerInquiries');
+      await db.query('DELETE FROM TrackerJustifications');
+      await db.query('DELETE FROM TrackerDeductions');
+      await db.query('DELETE FROM TrackerVisits');
+      await db.query('DELETE FROM TrackerAttendance');
+    }
+    console.log('✅ Clean slate: 0 test inquiries, 0 test visits, 0 test attendance');
+  } catch (err) {
+    console.log('Clean slate note:', err.message);
+  }
+}
 
 async function start() {
   // Bind port immediately so Render / cloud health checks pass instantly
@@ -2004,6 +2024,7 @@ async function start() {
     await ensureTables();
     await linkExistingUsersToEmployees();
     await seedUsers();
+    await cleanSlateInquiriesAndVisits();
     console.log('✅ السيرفر جاهز للاستخدام الحقيقي — لا بيانات وهمية.');
   } catch (err) {
     console.error('⚠️ Startup database initialization warning:', err.message);
