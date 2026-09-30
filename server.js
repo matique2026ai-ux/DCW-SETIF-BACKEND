@@ -2023,7 +2023,6 @@ async function start() {
 
     await ensureTables();
     await linkExistingUsersToEmployees();
-    await seedUsers();
     await cleanSlateInquiriesAndVisits();
     console.log('✅ السيرفر جاهز للاستخدام الحقيقي — لا بيانات وهمية.');
   } catch (err) {
